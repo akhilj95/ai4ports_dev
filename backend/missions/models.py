@@ -16,12 +16,12 @@ class RoverHardware(models.Model):
     Represents the hardware configuration versioning for a rover
     Only one active configuration per rover name is allowed at a time.
     """
-    name            = models.CharField(max_length=100)
+    name = models.CharField(max_length=100)
     
     # versioning / config
-    effective_from = models.DateTimeField(default=timezone.now)
-    hardware_config  = models.JSONField(default=dict, blank=True)
-    active         = models.BooleanField(default=True)
+    effective_from  = models.DateTimeField(default=timezone.now)
+    hardware_config = models.JSONField(default=dict, blank=True)
+    active          = models.BooleanField(default=True)
 
     class Meta:
         constraints = [
@@ -146,14 +146,14 @@ class Mission(models.Model):
         default=TargetType.WALL,
     )    
     max_depth    = models.FloatField(null=True, blank=True)
-    visibility = models.CharField(
+    visibility   = models.CharField(
         max_length=6,
         choices=LevelChoices.choices,
         default=LevelChoices.MEDIUM,
         blank=True,
         help_text="Visibility quality: low, medium, or high"
     )
-    cloud_cover = models.CharField(
+    cloud_cover  = models.CharField(
         max_length=6,
         choices=LevelChoices.choices,
         default=LevelChoices.MEDIUM,
