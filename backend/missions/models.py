@@ -68,6 +68,7 @@ class Sensor(models.Model):
         IMU = "imu", "IMU"
         PRESSURE = "pressure", "Pressure"
         SONAR = "sonar", "Sonar"
+        WATER_QUALITY = "water_quality", "Water Quality"
 
     sensor_type     = models.CharField(max_length=20, choices=SensorType.choices)
     name            = models.CharField(max_length=100, unique=True)
@@ -140,11 +141,17 @@ class Mission(models.Model):
     start_time   = models.DateTimeField(default=timezone.now)
     end_time     = models.DateTimeField(null=True, blank=True)
     location     = models.CharField(max_length=50, blank=True)
+
+    # Approx gps
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+
     target_type  = models.CharField(
         max_length=12,                     # safety margin of 6
         choices=TargetType.choices,
         default=TargetType.WALL,
     )    
+
     max_depth    = models.FloatField(null=True, blank=True)
     visibility   = models.CharField(
         max_length=6,
@@ -153,20 +160,14 @@ class Mission(models.Model):
         blank=True,
         help_text="Visibility quality: low, medium, or high"
     )
-    cloud_cover  = models.CharField(
+    driving_difficulty = models.CharField(
         max_length=6,
         choices=LevelChoices.choices,
         default=LevelChoices.MEDIUM,
         blank=True,
-        help_text="Cloud cover level: low, medium, or high"
+        help_text="Driving difficulty: low, medium, or high"
     )
-    tide_level = models.CharField(
-        max_length=6,
-        choices=LevelChoices.choices,
-        default=LevelChoices.MEDIUM,
-        blank=True,
-        help_text="Tide level: low, medium, or high"
-    )
+    
     notes  = models.TextField(blank=True)
 
     def clean(self):
