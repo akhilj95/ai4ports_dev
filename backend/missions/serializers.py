@@ -59,8 +59,7 @@ class MissionSerializer(serializers.ModelSerializer):
             "target_type",
             "max_depth",
             "visibility",
-            "cloud_cover",
-            "tide_level",
+            "driving_difficulty",
             "notes",
         )
 

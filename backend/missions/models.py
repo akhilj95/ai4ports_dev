@@ -167,7 +167,7 @@ class Mission(models.Model):
         blank=True,
         help_text="Driving difficulty: low, medium, or high"
     )
-    
+
     notes  = models.TextField(blank=True)
 
     def clean(self):
@@ -192,7 +192,7 @@ class SensorDeployment(models.Model):
                                     related_name="deployments")
     calibration = models.ForeignKey(Calibration, on_delete=models.PROTECT,
                                     null=True, blank=True)
-    position    = models.CharField(max_length=50)   # e.g. “bow-port”
+    position    = models.CharField(max_length=50)
 
     INSTANCE_CHOICES = [
         (0, '0'),
