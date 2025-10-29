@@ -260,11 +260,15 @@ class LogFile(models.Model):
     )
     created_at = models.DateTimeField(default=timezone.now)
     notes = models.TextField(blank=True)
+
+    # Parsing is done later and this tag helps check if it was already parsed
     already_parsed = models.BooleanField(default=False)
 
     def clean(self):
         if not self.bin_path and not self.tlog_path:
             raise ValidationError("At least one of bin_path or tlog_path must be provided.")
+        if self.bin_path and self.tlog_path:
+            raise ValidationError("Only one of bin_path or tlog_path can be provided per log file.")
 
     class Meta:
         indexes = [
@@ -279,12 +283,13 @@ class LogFile(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        files = []
         if self.bin_path:
-            files.append(".bin")
-        if self.tlog_path:
-            files.append(".tlog")
-        return f"Log for {self.mission} ({', '.join(files)} at {self.created_at:%Y-%m-%d %H:%M})"
+            file_type = ".bin"
+        elif self.tlog_path:
+            file_type = ".tlog"
+        else:
+            file_type = "No file"
+        return f"Log for {self.mission} ({file_type} at {self.created_at:%Y-%m-%d %H:%M})"
     
 
 #  ------------------------------------------------------------------
@@ -296,8 +301,11 @@ class NavSample(models.Model):
                                   related_name="nav_samples")
     timestamp = models.DateTimeField()
 
-    # depth is often logged; altitude above seabed may be derived
-    depth_m     = models.FloatField(null=True, blank=True)
+    # depth from pressure sensor
+    depth_m = models.FloatField(null=True, blank=True)
+
+    # depth after hydrographic correction
+    corrected_depth_m = models.FloatField(null=True, blank=True)
 
     roll_deg    = models.FloatField(null=True, blank=True)
     pitch_deg   = models.FloatField(null=True, blank=True)
@@ -322,14 +330,15 @@ class MediaAsset(models.Model):
     """
     class MediaType(models.TextChoices):
         IMAGE = "image", "Image"
+        IMAGE_SET = "image_set", "ImageSet"
         VIDEO = "video", "Video"
 
     deployment   = models.ForeignKey(
         SensorDeployment, on_delete=models.PROTECT, related_name="media")
-    media_type   = models.CharField(max_length=6, choices=MediaType.choices)
+    media_type   = models.CharField(max_length=10, choices=MediaType.choices)
     file_path    = models.CharField(max_length=500)
-    start_time   = models.DateTimeField()        # UTC
-    end_time     = models.DateTimeField(null=True, blank=True)   # video only
+    start_time   = models.DateTimeField()
+    end_time     = models.DateTimeField(null=True, blank=True)   # video or image_set
     fps          = models.DecimalField(max_digits=6, decimal_places=3, null=True, blank=True)      # video only
     file_metadata = models.JSONField(default=dict, blank=True)
     notes        = models.TextField(blank=True)
@@ -361,7 +370,7 @@ class MediaAsset(models.Model):
 
 class FrameIndex(models.Model):
     """
-    Represents a frame in a media asset, which could be an image or a video.
+    Represents a frame in a media asset.
     Each frame is linked to a media asset and optionally to a navigation sample.
     It contains metadata about the frame, such as its number, timestamp, and servo pitch.
     This allows for detailed indexing of frames within a media asset.
@@ -401,13 +410,9 @@ class FrameIndex(models.Model):
         ]
         ordering = ["media_asset", "frame_number"]
 
-#  ------------------------------------------------------------------
-#  7. Sonar data
-#  ------------------------------------------------------------------
-# For sonar data as text files, to be implemented later.
 
 #  ------------------------------------------------------------------
-#  8. Other sensor readings
+#  7. Other sensor readings
 #  ------------------------------------------------------------------
 
 # common base (abstract; no DB table)
@@ -419,7 +424,7 @@ class SensorSampleBase(models.Model):
     log_file   = models.ForeignKey(
         LogFile, on_delete=models.CASCADE, related_name="%(class)s"
     )
-    deployment = models.ForeignKey(           # which physical sensor produced it
+    deployment = models.ForeignKey(
         SensorDeployment, on_delete=models.CASCADE, related_name="%(class)s"
     )
     # UTC time stamp – fill this once you've converted the log-relative time
@@ -465,7 +470,7 @@ class ImuSample(SensorSampleBase):
 
 
 class CompassSample(SensorSampleBase):
-    """3-axis magnetic field in µT (works for both onboard magnetometers)."""
+    """3-axis magnetic field in µT."""
     mx_uT = models.FloatField()
     my_uT = models.FloatField()
     mz_uT = models.FloatField()
@@ -474,8 +479,12 @@ class CompassSample(SensorSampleBase):
 
 
 class PressureSample(SensorSampleBase):
-    """Absolute pressure plus optional temperature (use Pa to keep units SI)."""
+    """Absolute pressure plus optional temperature."""
     pressure_pa   = models.FloatField()
     temperature_C = models.FloatField(null=True, blank=True)
 
     EXPECTED_SENSOR_TYPE = Sensor.SensorType.PRESSURE
+
+#  ------------------------------------------------------------------
+#  7. Hydrographic sea level data
+#  ------------------------------------------------------------------
