@@ -86,9 +86,9 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'mydb',         # The database you created
-        'USER': 'myuser',       # The user you created
-        'PASSWORD': 'mypassword',# The password you set
+        'NAME': 'mydb',
+        'USER': 'myuser',
+        'PASSWORD': 'mypassword',
         'HOST': 'localhost',    # Or your DB host
         'PORT': '5432',         # Default PostgreSQL port
     }
@@ -138,10 +138,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 def _assert_postgres_only():
     """
-    Abort early if the default database is not PostgreSQL/PostGIS.
+    Abort early if the default database is not PostgreSQL.
     """
     engine = DATABASES['default']['ENGINE']
-    if not engine.endswith('postgresql') and 'postgis' not in engine:
+    if not engine.endswith('postgresql'):
         raise ImproperlyConfigured(
             "Only PostgreSQL is supported. "
             f"Current ENGINE is '{engine}'."

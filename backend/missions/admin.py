@@ -1,16 +1,15 @@
 from django.contrib import admin
-from .models import RoverHardware, Sensor, Calibration, Mission, SensorDeployment, NavSample, LogFile
-from .models import MediaAsset, FrameIndex, ImuSample, CompassSample, PressureSample
+from . import models
 
-admin.site.register(RoverHardware)
-admin.site.register(Sensor)
-admin.site.register(Calibration)
-admin.site.register(Mission)
-admin.site.register(SensorDeployment)
-admin.site.register(NavSample)
-admin.site.register(LogFile)
-admin.site.register(MediaAsset)
-admin.site.register(FrameIndex)
-admin.site.register(ImuSample)
-admin.site.register(CompassSample)
-admin.site.register(PressureSample)
+admin.site.register(models.RoverHardware)
+admin.site.register(models.Sensor)
+admin.site.register(models.Calibration)
+admin.site.register(models.Mission)
+admin.site.register(models.SensorDeployment)
+admin.site.register(models.NavSample)
+admin.site.register(models.LogFile)
+admin.site.register(models.MediaAsset)
+admin.site.register(models.FrameIndex)
+admin.site.register(models.ImuSample)
+admin.site.register(models.CompassSample)
+admin.site.register(models.PressureSample)

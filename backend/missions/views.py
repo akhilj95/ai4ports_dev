@@ -4,19 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
 
-from missions.models import (
-    RoverHardware, Sensor, Calibration, Mission,
-    SensorDeployment, LogFile, NavSample,
-    ImuSample, CompassSample, PressureSample,
-    MediaAsset, FrameIndex,
-)
-from missions.serializers import (
-    RoverHardwareSerializer, SensorSerializer, CalibrationSerializer, MissionSerializer,
-    SensorDeploymentSerializer, LogFileSerializer, NavSampleSerializer,
-    ImuSampleSerializer, CompassSampleSerializer, PressureSampleSerializer,
-    MediaAssetSerializer, FrameIndexSerializer,
-)
-from missions.filters import MissionFilter, MediaAssetFilter
+from . import models, serializers, filters
 
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # DJANGO REST FRAMEWORK DEFAULT SETTINGS ARE SET IN core/settings.py
@@ -26,8 +14,8 @@ from missions.filters import MissionFilter, MediaAssetFilter
 # Rover Hardware
 # ------------------------------------------------------------------
 class RoverHardwareViewSet(viewsets.ModelViewSet):
-    queryset = RoverHardware.objects.prefetch_related("missions").all()
-    serializer_class = RoverHardwareSerializer
+    queryset = models.RoverHardware.objects.prefetch_related("missions").all()
+    serializer_class = serializers.RoverHardwareSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     search_fields = ["name"]
     ordering_fields = ["effective_from", "name"]
@@ -36,8 +24,8 @@ class RoverHardwareViewSet(viewsets.ModelViewSet):
 # Sensor
 # ------------------------------------------------------------------
 class SensorViewSet(viewsets.ModelViewSet):
-    queryset = Sensor.objects.prefetch_related("calibrations").all()
-    serializer_class = SensorSerializer
+    queryset = models.Sensor.objects.prefetch_related("calibrations").all()
+    serializer_class = serializers.SensorSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     search_fields = ["name", "sensor_type"]
     ordering_fields = ["name", "sensor_type"]
@@ -46,8 +34,8 @@ class SensorViewSet(viewsets.ModelViewSet):
 # Calibration
 # ------------------------------------------------------------------
 class CalibrationViewSet(viewsets.ModelViewSet):
-    queryset = Calibration.objects.select_related("sensor").all()
-    serializer_class = CalibrationSerializer
+    queryset = models.Calibration.objects.select_related("sensor").all()
+    serializer_class = serializers.CalibrationSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     filterset_fields = ["sensor", "active"]
     ordering_fields = ["effective_from"]
@@ -56,10 +44,10 @@ class CalibrationViewSet(viewsets.ModelViewSet):
 # Mission
 # ------------------------------------------------------------------
 class MissionViewSet(viewsets.ModelViewSet):
-    queryset = Mission.objects.select_related("rover").all()
-    serializer_class = MissionSerializer
+    queryset = models.Mission.objects.select_related("rover").all()
+    serializer_class = serializers.MissionSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
-    filterset_class = MissionFilter
+    filterset_class = filters.MissionFilter
     search_fields = ["notes", "location"]
     ordering_fields = ["start_time", "max_depth"]
 
@@ -67,8 +55,8 @@ class MissionViewSet(viewsets.ModelViewSet):
 # Sensor Deployment
 # ------------------------------------------------------------------
 class SensorDeploymentViewSet(viewsets.ModelViewSet):
-    queryset = SensorDeployment.objects.select_related("sensor", "mission").all()
-    serializer_class = SensorDeploymentSerializer
+    queryset = models.SensorDeployment.objects.select_related("sensor", "mission").all()
+    serializer_class = serializers.SensorDeploymentSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     filterset_fields = ["sensor", "mission"]
     ordering_fields = ["mission", "sensor"]
@@ -77,8 +65,8 @@ class SensorDeploymentViewSet(viewsets.ModelViewSet):
 # Log File
 # ------------------------------------------------------------------
 class LogFileViewSet(viewsets.ModelViewSet):
-    queryset = LogFile.objects.select_related("mission").all()
-    serializer_class = LogFileSerializer
+    queryset = models.LogFile.objects.select_related("mission").all()
+    serializer_class = serializers.LogFileSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     filterset_fields = ["mission"]
     ordering_fields = ["created_at"]
@@ -87,8 +75,8 @@ class LogFileViewSet(viewsets.ModelViewSet):
 # Navigation Sample
 # ------------------------------------------------------------------
 class NavSampleViewSet(viewsets.ModelViewSet):
-    queryset = NavSample.objects.select_related("mission").all()
-    serializer_class = NavSampleSerializer
+    queryset = models.NavSample.objects.select_related("mission").all()
+    serializer_class = serializers.NavSampleSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     filterset_fields = ["mission", "depth_m", "timestamp"]
     ordering_fields = ["timestamp", "depth_m"]
@@ -97,8 +85,8 @@ class NavSampleViewSet(viewsets.ModelViewSet):
 # IMU Sample
 # ------------------------------------------------------------------
 class ImuSampleViewSet(viewsets.ModelViewSet):
-    queryset = ImuSample.objects.select_related("deployment").all()
-    serializer_class = ImuSampleSerializer
+    queryset = models.ImuSample.objects.select_related("deployment").all()
+    serializer_class = serializers.ImuSampleSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     filterset_fields = ["deployment"]
     ordering_fields = ["timestamp"]
@@ -107,8 +95,8 @@ class ImuSampleViewSet(viewsets.ModelViewSet):
 # Compass Sample
 # ------------------------------------------------------------------
 class CompassSampleViewSet(viewsets.ModelViewSet):
-    queryset = CompassSample.objects.select_related("deployment").all()
-    serializer_class = CompassSampleSerializer
+    queryset = models.CompassSample.objects.select_related("deployment").all()
+    serializer_class = serializers.CompassSampleSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     filterset_fields = ["deployment"]
     ordering_fields = ["timestamp"]
@@ -117,8 +105,8 @@ class CompassSampleViewSet(viewsets.ModelViewSet):
 # Pressure Sample
 # ------------------------------------------------------------------
 class PressureSampleViewSet(viewsets.ModelViewSet):
-    queryset = PressureSample.objects.select_related("deployment").all()
-    serializer_class = PressureSampleSerializer
+    queryset = models.PressureSample.objects.select_related("deployment").all()
+    serializer_class = serializers.PressureSampleSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     filterset_fields = ["deployment"]
     ordering_fields = ["timestamp"]
@@ -127,12 +115,12 @@ class PressureSampleViewSet(viewsets.ModelViewSet):
 # Media Asset
 # ------------------------------------------------------------------
 class MediaAssetViewSet(viewsets.ModelViewSet):
-    queryset = MediaAsset.objects.select_related(
+    queryset = models.MediaAsset.objects.select_related(
         'deployment__mission', 'deployment__sensor'
     ).prefetch_related('frames').all()
-    serializer_class = MediaAssetSerializer
+    serializer_class = serializers.MediaAssetSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
-    filterset_class = MediaAssetFilter
+    filterset_class = filters.MediaAssetFilter
     search_fields = ['deployment__mission__location',]
     ordering_fields = ['start_time']
 
@@ -140,10 +128,10 @@ class MediaAssetViewSet(viewsets.ModelViewSet):
 # Frame Index
 # ------------------------------------------------------------------
 class FrameIndexViewSet(viewsets.ModelViewSet):
-    queryset = FrameIndex.objects.select_related(
+    queryset = models.FrameIndex.objects.select_related(
         'media_asset', 'closest_nav_sample'
     ).all()
-    serializer_class = FrameIndexSerializer
+    serializer_class = serializers.FrameIndexSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     filterset_fields = [
         'media_asset',

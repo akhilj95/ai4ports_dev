@@ -1,15 +1,10 @@
 from rest_framework import serializers
-from missions.models import (
-    RoverHardware, Sensor, Calibration, Mission,
-    SensorDeployment, LogFile, NavSample,
-    ImuSample, CompassSample, PressureSample,
-    MediaAsset, FrameIndex,
-)
+from . import models
 
 # Serializer for RoverHardware model
 class RoverHardwareSerializer(serializers.ModelSerializer):
     class Meta:
-        model = RoverHardware
+        model = models.RoverHardware
         fields = ("id", "name", "effective_from", "hardware_config", "active")
         # Adding active to read only since I want to ensure it is not modified directly
         # Neeeds to be re check the logic in models and viewset
@@ -19,7 +14,7 @@ class RoverHardwareSerializer(serializers.ModelSerializer):
 # Serializer for Calibration model
 class CalibrationSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Calibration
+        model = models.Calibration
         fields = ("id", "effective_from", "coefficients", "active")
         # Adding active to read only since I want to ensure it is not modified directly
         # Neeeds to be re check the logic in models and viewset
@@ -31,7 +26,7 @@ class SensorSerializer(serializers.ModelSerializer):
     active_calibration = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
-        model = Sensor
+        model = models.Sensor
         fields = ("id", "name", "sensor_type", "specification", "active_calibration")
         read_only_fields = ("id",)
 
@@ -49,7 +44,7 @@ class SensorSerializer(serializers.ModelSerializer):
 # Serializer for Mission model with validation for time and depth fields
 class MissionSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Mission
+        model = models.Mission
         fields = (
             "id",
             "rover",
@@ -91,7 +86,7 @@ class SensorDeploymentSerializer(serializers.ModelSerializer):
     instance = serializers.ChoiceField(choices=[(0, '0'), (1, '1')], default=0)
 
     class Meta:
-        model = SensorDeployment
+        model = models.SensorDeployment
         fields = (
             "id",
             "mission",
@@ -113,7 +108,7 @@ class SensorDeploymentSerializer(serializers.ModelSerializer):
 # Serializer for LogFile model with validation ensuring at least one log path is provided
 class LogFileSerializer(serializers.ModelSerializer):
     class Meta:
-        model = LogFile
+        model = models.LogFile
         fields = (
             "id",
             "mission",
@@ -136,7 +131,7 @@ class LogFileSerializer(serializers.ModelSerializer):
 # Serializer for NavSample model representing navigation data points
 class NavSampleSerializer(serializers.ModelSerializer):
     class Meta:
-        model = NavSample
+        model = models.NavSample
         fields = ('id', 'mission', 'timestamp', 'depth_m', 'roll_deg', 'pitch_deg', 'yaw_deg')
         read_only_fields = ('id',)
 
@@ -150,7 +145,7 @@ class _BaseSampleSerializer(serializers.ModelSerializer):
 # Serializer for IMU sensor samples with gyroscope and accelerometer data
 class ImuSampleSerializer(_BaseSampleSerializer):
     class Meta(_BaseSampleSerializer.Meta):
-        model = ImuSample
+        model = models.ImuSample
         # Add IMU-specific fields to base fields
         fields = _BaseSampleSerializer.Meta.fields + (
             "gx_rad_s",
@@ -164,7 +159,7 @@ class ImuSampleSerializer(_BaseSampleSerializer):
 # Serializer for compass sensor samples with magnetic field strength data
 class CompassSampleSerializer(_BaseSampleSerializer):
     class Meta(_BaseSampleSerializer.Meta):
-        model = CompassSample
+        model = models.CompassSample
         # Add compass-specific magnetic field components
         fields = _BaseSampleSerializer.Meta.fields + (
             "mx_uT",
@@ -175,7 +170,7 @@ class CompassSampleSerializer(_BaseSampleSerializer):
 # Serializer for pressure sensor samples with pressure and temperature data
 class PressureSampleSerializer(_BaseSampleSerializer):
     class Meta(_BaseSampleSerializer.Meta):
-        model = PressureSample
+        model = models.PressureSample
         # Add pressure and temperature fields
         fields = _BaseSampleSerializer.Meta.fields + (
             "pressure_pa",
@@ -188,7 +183,7 @@ class MediaAssetSerializer(serializers.ModelSerializer):
     deployment_details = serializers.SerializerMethodField(read_only=True)
     
     class Meta:
-        model = MediaAsset
+        model = models.MediaAsset
         fields = (
             'id', 'deployment', 'media_type', 'file_path', 'start_time', 
             'end_time', 'fps', 'file_metadata', 'notes', 'deployment_details',
@@ -206,7 +201,7 @@ class MediaAssetSerializer(serializers.ModelSerializer):
     
     # Call validation from the parent class
     def validate(self, attrs):
-        instance = MediaAsset(**attrs)
+        instance = models.MediaAsset(**attrs)
         instance.clean()
         return attrs
 
@@ -218,7 +213,7 @@ class FrameIndexSerializer(serializers.ModelSerializer):
     nav_sample_details = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
-        model = FrameIndex
+        model = models.FrameIndex
         fields = (
             'id', 'media_asset', 'frame_number', 'timestamp', 'servo_pitch_deg',
             'closest_nav_sample', 'nav_match_time_diff_ms', 'media_asset_path',
