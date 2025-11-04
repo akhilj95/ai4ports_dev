@@ -7,7 +7,7 @@ class RoverHardwareSerializer(serializers.ModelSerializer):
         model = models.RoverHardware
         fields = ("id", "name", "effective_from", "hardware_config", "active")
         # Adding active to read only since I want to ensure it is not modified directly
-        # Neeeds to be re check the logic in models and viewset
+        # Needs to re check the logic in models and viewset
         read_only_fields = ("id", "active")
 
 
@@ -17,7 +17,7 @@ class CalibrationSerializer(serializers.ModelSerializer):
         model = models.Calibration
         fields = ("id", "effective_from", "coefficients", "active")
         # Adding active to read only since I want to ensure it is not modified directly
-        # Neeeds to be re check the logic in models and viewset
+        # Needs to re check the logic in models and viewset
         read_only_fields = ("id", "active")
 
 
@@ -231,3 +231,10 @@ class FrameIndexSerializer(serializers.ModelSerializer):
                 'roll_deg': obj.closest_nav_sample.roll_deg
             }
         return None
+    
+# Serializer for TideLevel model
+class TideLevelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.TideLevel
+        fields = ("id", "port_name", "time", "tide_height_m")
+        read_only_fields = ("id",)

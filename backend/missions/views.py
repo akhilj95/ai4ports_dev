@@ -141,3 +141,12 @@ class FrameIndexViewSet(viewsets.ModelViewSet):
     ]
     ordering_fields = ['timestamp', 'frame_number']
 
+# ------------------------------------------------------------------
+# Tide Levels
+# ------------------------------------------------------------------
+class TideLevelViewSet(viewsets.ModelViewSet):
+    queryset = models.TideLevel.objects.all()
+    serializer_class = serializers.TideLevelSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
+    search_fields = ["port_name"]
+    ordering_fields = ["port_name", "time"]
