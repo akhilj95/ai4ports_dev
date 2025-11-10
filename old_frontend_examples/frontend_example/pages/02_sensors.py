@@ -121,7 +121,7 @@ def create_sensor_form():
         
         with col1:
             # Sensor name
-            name = st.text_input("Sensor Name", placeholder="e.g., Primary Camera")
+            name = st.text_input("Sensor Name", placeholder="e.g., Primary camera")
             
             # Sensor type
             sensor_type = st.selectbox(

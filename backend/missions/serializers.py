@@ -1,5 +1,24 @@
 from rest_framework import serializers
 from . import models
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
+
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        # Get the default token data (access, refresh)
+        data = super().validate(attrs)
+
+        # Add custom data to the response
+        if self.user.is_superuser:
+            data['role'] = 'admin'
+        elif self.user.is_staff:
+            data['role'] = 'manager'
+        else:
+            data['role'] = 'user'
+
+        data['username'] = self.user.username
+        return data
+
 
 # Serializer for RoverHardware model
 class RoverHardwareSerializer(serializers.ModelSerializer):

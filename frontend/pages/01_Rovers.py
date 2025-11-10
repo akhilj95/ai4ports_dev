@@ -1,9 +1,13 @@
 # pages/01_Rovers.py - Rovers management page
 import streamlit as st
 import pandas as pd
+from auth import check_auth
 
 from utils.api_client import APIClient
 from config.settings import API_BASE_URL
+
+
+check_auth()
 
 # Page Configuration
 st.set_page_config(page_title="🚖 Rovers", layout="wide")

@@ -3,12 +3,22 @@ from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .serializers import MyTokenObtainPairSerializer
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from . import models, serializers, filters
 
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # DJANGO REST FRAMEWORK DEFAULT SETTINGS ARE SET IN core/settings.py
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+class MyTokenObtainPairView(TokenObtainPairView):
+    serializer_class = MyTokenObtainPairSerializer
+
 
 # ------------------------------------------------------------------
 # Rover Hardware
@@ -117,7 +127,7 @@ class PressureSampleViewSet(viewsets.ModelViewSet):
 class MediaAssetViewSet(viewsets.ModelViewSet):
     queryset = models.MediaAsset.objects.select_related(
         'deployment__mission', 'deployment__sensor'
-    ).prefetch_related('frames').all()
+    ).prefetch_related('frames').all().distinct()
     serializer_class = serializers.MediaAssetSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     filterset_class = filters.MediaAssetFilter
@@ -140,4 +150,24 @@ class FrameIndexViewSet(viewsets.ModelViewSet):
         'closest_nav_sample__yaw_deg',
     ]
     ordering_fields = ['timestamp', 'frame_number']
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_user_info(request):
+    """
+    Returns the role and username for the authenticated user.
+    """
+    user = request.user
+    if user.is_superuser:
+        role = 'admin'
+    elif user.is_staff:
+        role = 'manager'
+    else:
+        role = 'user'
+
+    return Response({
+        'username': user.username,
+        'role': role
+    })
 

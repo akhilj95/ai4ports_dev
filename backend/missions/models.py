@@ -63,11 +63,11 @@ class Sensor(models.Model):
     Each sensor has a type, name, and optional specification.
     """
     class SensorType(models.TextChoices):
-        CAMERA = "camera", "Camera"
+        CAMERA = "camera", "camera"
         COMPASS = "compass", "Compass"
         IMU = "imu", "IMU"
         PRESSURE = "pressure", "Pressure"
-        SONAR = "sonar", "Sonar"
+        SONAR = "sonar", "sonar"
         WATER_QUALITY = "water_quality", "Water Quality"
 
     sensor_type     = models.CharField(max_length=20, choices=SensorType.choices)
@@ -198,7 +198,7 @@ class SensorDeployment(models.Model):
         (0, '0'),
         (1, '1'),
     ]
-    # Instance number for sensors types that can have multiple instances (e.g. Compass or Camera)
+    # Instance number for sensors types that can have multiple instances (e.g. Compass or camera)
     # 0 for primary, 1 for secondary (if applicable)
     instance = models.IntegerField(
         choices=INSTANCE_CHOICES,

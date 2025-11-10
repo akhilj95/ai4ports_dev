@@ -8,8 +8,12 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import streamlit as st
+from auth import check_auth
 from config.settings import API_BASE_URL, MEDIA_ROOT
 from utils.api_client import APIClient
+
+
+check_auth()
 
 # Page setup
 st.set_page_config(page_title="🎥 Media Explorer", layout="wide")

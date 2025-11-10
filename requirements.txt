@@ -47,3 +47,4 @@ typing_extensions==4.14.1
 tzdata==2025.2
 urllib3==2.5.0
 watchdog==6.0.0
+djangorestframework-simplejwt==5.5.1

@@ -2,8 +2,12 @@
 import streamlit as st
 import pandas as pd
 
+from auth import check_auth
 from utils.api_client import APIClient
 from config.settings import API_BASE_URL, SENSOR_TYPES
+
+
+check_auth()
 
 st.set_page_config(page_title="🔧 Sensors", layout="wide")
 

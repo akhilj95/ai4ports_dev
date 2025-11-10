@@ -18,11 +18,16 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf.urls.static import static
 from django.conf import settings
+from rest_framework_simplejwt.views import TokenRefreshView
+from missions.views import MyTokenObtainPairView, get_user_info
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('schema-viewer/', include('schema_viewer.urls')),
     path('api/', include('missions.urls')),
+    path('api/token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/me/', get_user_info, name='get_user_info'),
 ]
 
 # Serve media files during development

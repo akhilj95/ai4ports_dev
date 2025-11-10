@@ -1,12 +1,16 @@
 # pages/03_Missions.py - Missions management page
 import streamlit as st
 import pandas as pd
+from auth import check_auth
 from pathlib import Path
 from datetime import datetime, timezone
 import json
 
 from utils.api_client import APIClient
 from config.settings import API_BASE_URL, TARGET_TYPES, LEVEL_CHOICES
+
+
+check_auth()
 
 # Page configuration
 st.set_page_config(page_title="🚀 Missions", layout="wide")

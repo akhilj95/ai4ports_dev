@@ -1,9 +1,12 @@
 # pages/04_Deployments.py - Sensor Deployments management page
 import streamlit as st
 import pandas as pd
-
+from auth import check_auth
 from utils.api_client import APIClient
 from config.settings import API_BASE_URL
+
+
+check_auth()
 
 st.set_page_config(page_title="📦 Deployments", layout="wide")
 

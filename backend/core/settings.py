@@ -45,6 +45,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
     'schema_viewer',
     'django_filters',
     'missions',
@@ -53,6 +55,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -86,9 +89,9 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'mydb',
-        'USER': 'myuser',
-        'PASSWORD': 'mypassword',
+        'NAME': 'ai4ports',         # The database you created
+        'USER': 'postgres',       # The user you created
+        'PASSWORD': 'rqZuke3F',# The password you set
         'HOST': 'localhost',    # Or your DB host
         'PORT': '5432',         # Default PostgreSQL port
     }
@@ -138,10 +141,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 def _assert_postgres_only():
     """
-    Abort early if the default database is not PostgreSQL.
+    Abort early if the default database is not PostgreSQL/PostGIS.
     """
     engine = DATABASES['default']['ENGINE']
-    if not engine.endswith('postgresql'):
+    if not engine.endswith('postgresql') and 'postgis' not in engine:
         raise ImproperlyConfigured(
             "Only PostgreSQL is supported. "
             f"Current ENGINE is '{engine}'."
@@ -176,5 +179,25 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS":
         "rest_framework.pagination.LimitOffsetPagination",
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
     "PAGE_SIZE": 100,
 }
+
+
+# --- EDIT THIS SECTION ---
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:8501",
+    "http://127.0.0.1:8501",
+]
+
+# --- ADD THIS ---
+# This tells CORS to allow the "Authorization" header to be sent
+CORS_ALLOW_HEADERS = [
+    'authorization',
+    'content-type',
+]
+
+# This allows cookies to be sent (which we use for the refresh token)
+CORS_ALLOW_CREDENTIALS = True

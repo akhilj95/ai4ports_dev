@@ -30,11 +30,11 @@ DEFAULT_PAGE_SIZE = 20
 
 # Sensor type choices (matching Django model)
 SENSOR_TYPES = [
-    ('camera', 'Camera'),
+    ('camera', 'camera'),
     ('compass', 'Compass'),
     ('imu', 'IMU'),
     ('pressure', 'Pressure'),
-    ('sonar', 'Sonar'),
+    ('sonar', 'sonar'),
 ]
 
 # Mission target types (matching Django model)
