@@ -14,5 +14,6 @@ router.register(r"compasssamples", views.CompassSampleViewSet)
 router.register(r"pressuresamples", views.PressureSampleViewSet)
 router.register(r'media-assets', views.MediaAssetViewSet)
 router.register(r'frame-indices', views.FrameIndexViewSet)
+router.register(r'tide-levels', views.TideLevelViewSet)
 
 urlpatterns = router.urls

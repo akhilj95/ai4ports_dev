@@ -127,7 +127,7 @@ class PressureSampleViewSet(viewsets.ModelViewSet):
 class MediaAssetViewSet(viewsets.ModelViewSet):
     queryset = models.MediaAsset.objects.select_related(
         'deployment__mission', 'deployment__sensor'
-    ).prefetch_related('frames').all().distinct()
+    ).prefetch_related('frames').all()
     serializer_class = serializers.MediaAssetSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
     filterset_class = filters.MediaAssetFilter
@@ -151,6 +151,15 @@ class FrameIndexViewSet(viewsets.ModelViewSet):
     ]
     ordering_fields = ['timestamp', 'frame_number']
 
+# ------------------------------------------------------------------
+# Tide Levels
+# ------------------------------------------------------------------
+class TideLevelViewSet(viewsets.ModelViewSet):
+    queryset = models.TideLevel.objects.all()
+    serializer_class = serializers.TideLevelSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
+    search_fields = ["port_name"]
+    ordering_fields = ["port_name", "time"]
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

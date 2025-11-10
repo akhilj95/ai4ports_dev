@@ -135,6 +135,10 @@ class Mission(models.Model):
         MEDIUM = "medium", "Medium"
         HIGH = "high", "High"
 
+    class PortChoice(models.TextChoices):
+        PONTA_DELGADA = "ponta_delgada", "Ponta Delgada"
+        HORTA   = "horta",   "Horta"
+
     rover        = models.ForeignKey(
         RoverHardware, on_delete=models.PROTECT, related_name="missions"
     )
@@ -330,7 +334,7 @@ class MediaAsset(models.Model):
     """
     class MediaType(models.TextChoices):
         IMAGE = "image", "Image"
-        IMAGE_SET = "image_set", "ImageSet"
+        IMAGE_SET = "image_set", "Image Set"
         VIDEO = "video", "Video"
 
     deployment   = models.ForeignKey(
@@ -488,3 +492,22 @@ class PressureSample(SensorSampleBase):
 #  ------------------------------------------------------------------
 #  7. Hydrographic sea level data
 #  ------------------------------------------------------------------
+class TideLevel(models.Model):
+    """
+        Stores the predicted high and low tide values with the time.
+        This data is parsed from an external source and used for depth corrections.
+    """
+    class PortChoice(models.TextChoices):
+        PONTA_DELGADA = "ponta_delgada", "Ponta Delgada"
+        HORTA   = "horta",   "Horta"
+    
+    port_name = models.CharField(
+        max_length=20,                     # safety margin of 6
+        choices=PortChoice.choices,
+        default=PortChoice.PONTA_DELGADA,
+    )
+    time = models.DateTimeField()
+    tide_height_m = models.FloatField()
+
+    def __str__(self):
+        return f"{self.port_name} - {self.time:%Y-%m-%d %H:%M} - {self.tide_height_m}m"
