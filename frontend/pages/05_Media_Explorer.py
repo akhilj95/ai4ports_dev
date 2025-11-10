@@ -162,6 +162,13 @@ for asset in selected_assets:
             step=1,
             format="%d",
         )
+        # Build the full, absolute path
+        full_media_path = str(MEDIA_ROOT / asset.get("file_path", ""))
+
+        # --- DEBUGGING ---
+        st.error(f"Looking for file at: {full_media_path}")
+        st.info(f"Does file exist? {os.path.exists(full_media_path)}")
+        # --- END DEBUGGING ---
 
         video_start_sec = sel_frame / fps if fps else 0.0
         st.video(file_path, start_time=video_start_sec)
