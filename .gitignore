@@ -4,3 +4,4 @@
 
 # Ignore all __pycache__
 __pycache__/
+/data/
