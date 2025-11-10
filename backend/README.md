@@ -16,3 +16,14 @@ DATABASES = {
         'PORT': '5432',
     }
 }
+
+
+### 1. Create YOUR Admin User
+
+Use this method to create your superuser to access the admin panel.
+
+1.  Run the `createsuperuser` command:
+    ```bash
+    python manage.py createsuperuser
+    ```
+2.  Follow the prompts to set a username, email, and a secure password.
