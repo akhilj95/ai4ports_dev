@@ -151,7 +151,7 @@ class LogFileSerializer(serializers.ModelSerializer):
 class NavSampleSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.NavSample
-        fields = ('id', 'mission', 'timestamp', 'depth_m', 'roll_deg', 'pitch_deg', 'yaw_deg')
+        fields = ('id', 'mission', 'timestamp', 'depth_m', 'corrected_depth_m', 'roll_deg', 'pitch_deg', 'yaw_deg')
         read_only_fields = ('id',)
 
 
@@ -234,7 +234,7 @@ class FrameIndexSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.FrameIndex
         fields = (
-            'id', 'media_asset', 'frame_number', 'timestamp', 'servo_pitch_deg',
+            'id', 'media_asset', 'frame_number', 'timestamp',
             'closest_nav_sample', 'nav_match_time_diff_ms', 'media_asset_path',
             'nav_sample_details'
         )
