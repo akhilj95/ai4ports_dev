@@ -63,11 +63,11 @@ class Sensor(models.Model):
     Each sensor has a type, name, and optional specification.
     """
     class SensorType(models.TextChoices):
-        CAMERA = "camera", "camera"
+        CAMERA = "camera", "Camera"
         COMPASS = "compass", "Compass"
         IMU = "imu", "IMU"
         PRESSURE = "pressure", "Pressure"
-        SONAR = "sonar", "sonar"
+        SONAR = "sonar", "Sonar"
         WATER_QUALITY = "water_quality", "Water Quality"
 
     sensor_type     = models.CharField(max_length=20, choices=SensorType.choices)
@@ -308,7 +308,8 @@ class NavSample(models.Model):
     # depth from pressure sensor
     depth_m = models.FloatField(null=True, blank=True)
 
-    # depth after hydrographic correction
+    # depth after hydrographic correction. So represented from hydrographic zero.
+    # positive downwards from hydrographic zero level.
     corrected_depth_m = models.FloatField(null=True, blank=True)
 
     roll_deg    = models.FloatField(null=True, blank=True)
@@ -376,7 +377,7 @@ class FrameIndex(models.Model):
     """
     Represents a frame in a media asset.
     Each frame is linked to a media asset and optionally to a navigation sample.
-    It contains metadata about the frame, such as its number, timestamp, and servo pitch.
+    It contains metadata about the frame, such as its number and timestamp.
     This allows for detailed indexing of frames within a media asset.
     It could be data from one of the cameras or the imaging sonar.
     """
@@ -384,7 +385,6 @@ class FrameIndex(models.Model):
         MediaAsset, on_delete=models.CASCADE, related_name="frames")
     frame_number  = models.PositiveIntegerField(null=True, blank=True)
     timestamp     = models.DateTimeField()
-    servo_pitch_deg = models.FloatField(null=True, blank=True)   # for Rpi camera tilt
 
     # link to navigation
     # optional to allow flexible processing workflow
