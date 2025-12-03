@@ -164,11 +164,11 @@ Edit `config/settings.py`:
 
 ```python
 SENSOR_TYPES = [
-    ('camera', 'Camera'),
+    ('camera', 'camera'),
     ('compass', 'Compass'),
     ('imu', 'IMU'),
     ('pressure', 'Pressure'),
-    ('sonar', 'Sonar'),
+    ('sonar', 'sonar'),
     ('new_type', 'New Sensor Type'),  # Add new type
 ]
 ```
