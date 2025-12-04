@@ -5,3 +5,8 @@
 # Ignore all __pycache__
 __pycache__/
 /data/
+
+# Ignore all venv and env
+venv/
+env/
+.venv/
