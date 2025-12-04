@@ -10,6 +10,7 @@
 #include <atomic>
 #include <filesystem>
 #include <csignal>
+#include <string>
 
 #ifdef _WIN32
     #include <winsock2.h>
@@ -34,7 +35,7 @@ namespace fs = std::filesystem;
 const int PREVIEW_PORT = 5002;
 //const string PREVIEW_IP = "192.168.2.1";
 const string PREVIEW_IP = "127.0.0.1";
-const int RECORD_EVERY_N_FRAMES = 1; // Set to 2 or 3 if saving is too slow
+const int RECORD_EVERY_N_FRAMES = 1;
 
 bool debug_mode = false;
 string session_path = ".";
@@ -116,6 +117,19 @@ bool init_curl_request(const string& url, const string& payload, const string& m
         return (res == CURLE_OK);
     }
     return false;
+}
+
+// --- NEW HELPER: Set Range Dynamic ---
+void set_sonar_range(float range) {
+    if (debug_mode) return;
+    cout << "[Sonar] Setting Range to: " << range << "m" << endl;
+    
+    // JSON Payload: {"power_state": "on", "range": X.X}
+    string payload = "{\"power_state\": \"on\", \"range\": " + to_string(range) + "}";
+    
+    if (!init_curl_request(api_url + "/transceiver", payload, "PUT")) {
+        cerr << "[Sonar Error] Failed to update range." << endl;
+    }
 }
 
 void stop_sonar_transponder() {
@@ -281,10 +295,24 @@ void save_func(){
     }
 }
 
-void watchdog_func() {
-    char c;
-    while (std::cin.get(c)) {}
+// --- MODIFIED: INPUT LISTENER / WATCHDOG ---
+void input_listener_func() {
+    string line;
+    // std::getline blocks until newline. If pipe closes, it returns false.
+    while (std::getline(std::cin, line)) {
+        if (line.rfind("RANGE ", 0) == 0) { // Starts with "RANGE "
+            try {
+                float new_range = stof(line.substr(6));
+                set_sonar_range(new_range);
+            } catch (...) {
+                cerr << "[Sonar Error] Invalid range format: " << line << endl;
+            }
+        }
+    }
+
+    // If loop exits, pipe is broken (Parent died)
     if (keep_running) {
+        std::cerr << "[Watchdog] Parent process disconnected. Shutting down." << std::endl;
         keep_running = false;
         stop_sonar_transponder();
         queue_not_empty.notify_all();
@@ -311,9 +339,8 @@ int main(int argc, char** argv) {
         if (!init_curl_request(api_url + "/datastream", "{\"stream_type\": \"rtsp\"}", "PUT")) {
             cerr << "[Sonar Error] Failed to set RTSP stream mode." << endl;
         }
-        if (!init_curl_request(api_url + "/transceiver", "{\"power_state\": \"on\", \"range\": 3.0}", "PUT")) {
-            cerr << "[Sonar Error] Failed to enable transceiver." << endl;
-        }
+        // Use Helper to set initial range
+        set_sonar_range(3.0);
     }
 
     #ifdef _WIN32
@@ -329,7 +356,9 @@ int main(int argc, char** argv) {
     #endif
 
     cout << "Starting Sonar Capture..." << endl;
-    std::thread t_watchdog(watchdog_func);
+    
+    // --- UPDATED: Uses input_listener_func instead of old watchdog ---
+    std::thread t_watchdog(input_listener_func);
     t_watchdog.detach();
 
     thread t_capture(capture_func);
