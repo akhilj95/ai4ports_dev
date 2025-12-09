@@ -33,7 +33,6 @@ using namespace std;
 namespace fs = std::filesystem;
 
 const int PREVIEW_PORT = 5002;
-//const string PREVIEW_IP = "192.168.2.1";
 const string PREVIEW_IP = "127.0.0.1";
 const int RECORD_EVERY_N_FRAMES = 1;
 
@@ -57,6 +56,7 @@ condition_variable queue_not_empty;
 const int MAX_QUEUE_SIZE = 1000;
 
 atomic<bool> keep_running(true);
+atomic<bool> restart_requested(false);
 
 string sonar_ip = "192.168.2.42";
 string rtsp_url = "rtsp://" + sonar_ip + ":8554/raw";
@@ -75,8 +75,19 @@ void init_udp() {
 
 void send_udp_preview(const cv::Mat& frame) {
     if (frame.empty()) return;
+
+    // --- CHANGED: Dynamic Height, Fixed Width ---
+    int fixed_width = 400;
+    // Calculate height based on aspect ratio
+    int calc_height = static_cast<int>((double)frame.rows / frame.cols * fixed_width);
+
+    // Ensure even height for encoding stability (optional but good practice)
+    if (calc_height % 2 != 0) calc_height++;
+
     cv::Mat preview;
-    cv::resize(frame, preview, cv::Size(400, 225));
+    cv::resize(frame, preview, cv::Size(fixed_width, calc_height));
+    // --------------------------------------------
+
     cv::Mat send_frame = preview;
     if (preview.type() == CV_16U) {
         double min, max;
@@ -119,15 +130,16 @@ bool init_curl_request(const string& url, const string& payload, const string& m
     return false;
 }
 
-// --- NEW HELPER: Set Range Dynamic ---
 void set_sonar_range(float range) {
     if (debug_mode) return;
     cout << "[Sonar] Setting Range to: " << range << "m" << endl;
-    
-    // JSON Payload: {"power_state": "on", "range": X.X}
+
     string payload = "{\"power_state\": \"on\", \"range\": " + to_string(range) + "}";
-    
-    if (!init_curl_request(api_url + "/transceiver", payload, "PUT")) {
+
+    if (init_curl_request(api_url + "/transceiver", payload, "PUT")) {
+        cout << "[Sonar] Range set. Requesting stream restart..." << endl;
+        restart_requested = true;
+    } else {
         cerr << "[Sonar Error] Failed to update range." << endl;
     }
 }
@@ -154,7 +166,6 @@ BOOL WINAPI CtrlHandler(DWORD fdwCtrlType) {
     case CTRL_BREAK_EVENT:
         keep_running = false;
         queue_not_empty.notify_all();
-
         return TRUE;
     default:
         return FALSE;
@@ -202,45 +213,53 @@ void capture_func(){
         cap.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
         cap.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
     } else {
-        cout << "[Sonar] Attempting to connect to " << rtsp_url << "..." << endl;
+        cout << "[Sonar] Connecting to " << rtsp_url << "..." << endl;
         cap.open(rtsp_url, cv::CAP_FFMPEG);
-
         cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
     }
 
-    if (!cap.isOpened()){
-        keep_running = false;
-        return;
-    }
-
     cap.set(cv::CAP_PROP_READ_TIMEOUT_MSEC, 1000);
-    
+
     Mat frame;
     auto last_frame_time = std::chrono::steady_clock::now();
     int frame_cont = 0;
 
     while(keep_running){
+        if (restart_requested) {
+            cout << "[Sonar] Restarting capture stream..." << endl;
+            if (cap.isOpened()) cap.release();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            cap.open(rtsp_url, cv::CAP_FFMPEG);
+            cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
+            last_frame_time = std::chrono::steady_clock::now();
+            restart_requested = false;
+            cout << "[Sonar] Reconnection attempt complete." << endl;
+        }
+
+        if (!cap.isOpened()) {
+             std::this_thread::sleep_for(std::chrono::milliseconds(500));
+             cap.open(rtsp_url, cv::CAP_FFMPEG);
+        }
+
         bool success = cap.read(frame);
         auto now_steady = std::chrono::steady_clock::now();
 
         if (!success || frame.empty()) {
              auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now_steady - last_frame_time).count();
-             if (elapsed > 5) {
-                 cerr << "[Sonar Error] Stream lost or frozen > 5s. Exiting." << endl;
+             if (elapsed > 10) {
+                 cerr << "[Sonar Error] Stream lost > 10s. Exiting." << endl;
                  keep_running = false;
                  queue_not_empty.notify_all();
                  break;
              }
              continue;
         }
+
         last_frame_time = now_steady;
 
-        // Send preview every other frame to save bandwidth
         if (frame_cont % 2 == 0) send_udp_preview(frame);
-
         frame_cont++;
 
-        // Only save to disk every Nth frame
         if (frame_cont % RECORD_EVERY_N_FRAMES == 0) {
             Mat gray_frame;
             if (frame.channels() == 3) cvtColor(frame, gray_frame, COLOR_BGR2GRAY);
@@ -252,7 +271,6 @@ void capture_func(){
             FrameItem frame_items;
             frame_items.frame = gray_frame;
             frame_items.timestamp = timestamp;
-
             enqueue_frame(frame_items);
         }
     }
@@ -260,7 +278,6 @@ void capture_func(){
 }
 
 void save_func(){
-    // FOLDER STRUCTURE: .../session_X/sonar/images
     stringstream ss_img, ss_raw;
     ss_img << session_path << "/sonar/images";
     ss_raw << session_path << "/sonar/raw";
@@ -295,12 +312,10 @@ void save_func(){
     }
 }
 
-// --- MODIFIED: INPUT LISTENER / WATCHDOG ---
 void input_listener_func() {
     string line;
-    // std::getline blocks until newline. If pipe closes, it returns false.
     while (std::getline(std::cin, line)) {
-        if (line.rfind("RANGE ", 0) == 0) { // Starts with "RANGE "
+        if (line.rfind("RANGE ", 0) == 0) {
             try {
                 float new_range = stof(line.substr(6));
                 set_sonar_range(new_range);
@@ -310,7 +325,6 @@ void input_listener_func() {
         }
     }
 
-    // If loop exits, pipe is broken (Parent died)
     if (keep_running) {
         std::cerr << "[Watchdog] Parent process disconnected. Shutting down." << std::endl;
         keep_running = false;
@@ -339,7 +353,6 @@ int main(int argc, char** argv) {
         if (!init_curl_request(api_url + "/datastream", "{\"stream_type\": \"rtsp\"}", "PUT")) {
             cerr << "[Sonar Error] Failed to set RTSP stream mode." << endl;
         }
-        // Use Helper to set initial range
         set_sonar_range(3.0);
     }
 
@@ -356,8 +369,7 @@ int main(int argc, char** argv) {
     #endif
 
     cout << "Starting Sonar Capture..." << endl;
-    
-    // --- UPDATED: Uses input_listener_func instead of old watchdog ---
+
     std::thread t_watchdog(input_listener_func);
     t_watchdog.detach();
 

@@ -16,8 +16,8 @@ from PyQt6.QtGui import QPixmap
 from src.video_thread_udp import VideoThreadUDP
 from src.smart_video_thread import SmartVideoThread
 from src.mavlink_worker import MavlinkWorker
-from src.processing_worker import ProcessingWorker  # Imported from new file
-import src.styles as styles  # Imported from new file
+from src.processing_worker import ProcessingWorker
+import src.styles as styles
 
 
 class ROVConsole(QMainWindow):
@@ -44,6 +44,14 @@ class ROVConsole(QMainWindow):
         self.current_mission_folder = None
         self.current_session_path = None
         self.is_mission_active = False
+
+        # --- SONAR CONFIG ---
+        self.sonar_range_values = [3, 6, 9, 12, 15, 20, 25, 30]
+        # Debounce timer to prevent spamming the driver while sliding
+        self.sonar_debounce_timer = QTimer()
+        self.sonar_debounce_timer.setSingleShot(True)
+        self.sonar_debounce_timer.setInterval(800)  # Wait 800ms after last movement
+        self.sonar_debounce_timer.timeout.connect(self.send_sonar_command_delayed)
 
         self.init_ui()
         self.start_preview_listeners()
@@ -110,31 +118,44 @@ class ROVConsole(QMainWindow):
         layout_session = QVBoxLayout(self.widget_session_ui)
         layout_session.setContentsMargins(0, 5, 0, 0)
 
-        # Video Area
+        # --- VIDEO AREA (3 COLUMNS) ---
         video_area = QWidget()
         video_layout = QHBoxLayout(video_area)
         video_layout.setContentsMargins(0, 0, 0, 0)
         video_layout.setSpacing(5)
 
+        # COL 1: Main Camera
         self.lbl_main = self.create_video_label("Main Camera (Pilot)\n[Connecting...]")
         video_layout.addWidget(self.lbl_main, stretch=4)
 
+        # COL 2: Middle Sidebar (Panasonic + Processed)
+        middle_sidebar = QWidget()
+        middle_layout = QVBoxLayout(middle_sidebar)
+        middle_layout.setContentsMargins(0, 0, 0, 0)
+        middle_layout.setSpacing(5)
+
+        self.lbl_pana = self.create_video_label("Panasonic Recorder [UDP 5001]")
+        self.lbl_proc = self.create_video_label("Processed Contour")
+        self.lbl_proc.setVisible(False)
+
+        middle_layout.addWidget(self.lbl_pana, 1)
+        middle_layout.addWidget(self.lbl_proc, 1)
+
+        # COL 3: Right Sidebar (Sonar Only)
         right_sidebar = QWidget()
         right_layout = QVBoxLayout(right_sidebar)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(5)
 
-        self.lbl_pana = self.create_video_label("Panasonic Recorder [UDP 5001]")
         self.lbl_sonar = self.create_video_label("Sonar View [UDP 5002]")
-        self.lbl_proc = self.create_video_label("Processed Contour")
-        self.lbl_proc.setVisible(False)
-
-        right_layout.addWidget(self.lbl_pana, 1)
         right_layout.addWidget(self.lbl_sonar, 1)
-        right_layout.addWidget(self.lbl_proc, 1)
 
+        # Add Columns to Layout (Col 2 and Col 3 have equal stretch of 1)
+        video_layout.addWidget(middle_sidebar, stretch=1)
         video_layout.addWidget(right_sidebar, stretch=1)
+
         layout_session.addWidget(video_area, 1)
+        # ---------------------------------------
 
         # Controls Area
         controls_frame = QFrame()
@@ -159,32 +180,38 @@ class ROVConsole(QMainWindow):
         self.btn_process.setStyleSheet(styles.BTN_PROCESS)
         self.btn_process.clicked.connect(self.run_processing)
 
-        # --- NEW SONAR SLIDER ---
+        # --- UPDATED SLIDER WITH SPECIFIC VALUES ---
         self.sonar_control_widget = QWidget()
         sonar_layout = QVBoxLayout(self.sonar_control_widget)
         sonar_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.lbl_sonar_range = QLabel("Sonar Range: 3.0m")
+        self.lbl_sonar_range = QLabel("Sonar Range: 3m")
         self.lbl_sonar_range.setStyleSheet("color: white; font-weight: bold; font-size: 12px; margin-bottom: 2px;")
+        self.lbl_sonar_range.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.slider_sonar_range = QSlider(Qt.Orientation.Horizontal)
-        self.slider_sonar_range.setRange(1, 10)  # 1m to 10m
-        self.slider_sonar_range.setValue(9)
+        # Set range to match index of array [0 .. len-1]
+        self.slider_sonar_range.setRange(0, len(self.sonar_range_values) - 1)
+        self.slider_sonar_range.setValue(0)  # Default to first index (3m)
         self.slider_sonar_range.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.slider_sonar_range.setTickInterval(1)
-        self.slider_sonar_range.valueChanged.connect(self.update_sonar_range)
+
+        # Connect to visual update immediately
+        self.slider_sonar_range.valueChanged.connect(self.on_sonar_slider_change)
+
         self.slider_sonar_range.setStyleSheet(styles.SLIDER_STYLE)
 
         sonar_layout.addWidget(self.lbl_sonar_range)
         sonar_layout.addWidget(self.slider_sonar_range)
 
-        self.sonar_control_widget.setVisible(False)  # Hidden until session starts
+        self.sonar_control_widget.setVisible(False)
         # ------------------------
 
-        controls_layout.addWidget(self.btn_start_session)
-        controls_layout.addWidget(self.btn_stop_session)
-        controls_layout.addWidget(self.sonar_control_widget)  # Insert Slider
-        controls_layout.addWidget(self.btn_process)
+        # Added stretch=1 to all control widgets to make them equal width
+        controls_layout.addWidget(self.btn_start_session, 1)
+        controls_layout.addWidget(self.btn_stop_session, 1)
+        controls_layout.addWidget(self.sonar_control_widget, 1)
+        controls_layout.addWidget(self.btn_process, 1)
 
         layout_session.addWidget(controls_frame, 0)
         self.widget_session_ui.setVisible(False)
@@ -231,20 +258,32 @@ class ROVConsole(QMainWindow):
         self.thread_sonar.change_pixmap_signal.connect(lambda x: self.set_pixmap_scaled(self.lbl_sonar, x))
         self.thread_sonar.start()
 
-    # --- NEW: Sonar Slider Logic ---
-    def update_sonar_range(self):
-        val = self.slider_sonar_range.value()
-        self.lbl_sonar_range.setText(f"Sonar Range: {val}.0m")
+    # --- NEW: SLIDER LOGIC ---
+    def on_sonar_slider_change(self):
+        """Updates UI immediately, starts debounce timer for API call."""
+        idx = self.slider_sonar_range.value()
+        val = self.sonar_range_values[idx]
+        self.lbl_sonar_range.setText(f"Sonar Range: {val}m")
 
-        # Send command to C++ Process via Stdin
+        # Reset timer (debounce)
+        self.sonar_debounce_timer.start()
+
+    def send_sonar_command_delayed(self):
+        """Actually sends the command after debounce timeout."""
+        idx = self.slider_sonar_range.value()
+        val = float(self.sonar_range_values[idx])
+
         if self.proc_sonar and self.proc_sonar.poll() is None:
             try:
-                cmd = f"RANGE {val}.0\n"
+                # Format to float "3.0"
+                cmd = f"RANGE {val:.1f}\n"
                 self.proc_sonar.stdin.write(cmd.encode('utf-8'))
                 self.proc_sonar.stdin.flush()
-                self.log_output.append(f"[CMD] Sent Sonar Range: {val}m")
+                self.log_output.append(f"[CMD] Sent Sonar Range: {val:.1f}m")
             except Exception as e:
                 self.log_output.append(f"[ERR] Failed to send range: {e}")
+
+    # -------------------------
 
     def save_mavlink_data(self, success, msg, boot_time_ms):
         if not self.current_mission_folder:
@@ -331,7 +370,7 @@ class ROVConsole(QMainWindow):
         self.widget_session_ui.setVisible(False)
         self.log_output.setVisible(False)
 
-        self.sonar_control_widget.setVisible(False)  # Hide Slider
+        self.sonar_control_widget.setVisible(False)
 
         if self.thread_main:
             self.thread_main.stop()
@@ -389,8 +428,8 @@ class ROVConsole(QMainWindow):
         self.btn_stop_session.setEnabled(True)
         self.btn_finish_mission.setVisible(False)
 
-        self.sonar_control_widget.setVisible(True)  # Show Slider
-        self.slider_sonar_range.setValue(9)
+        self.sonar_control_widget.setVisible(True)
+        self.slider_sonar_range.setValue(0)  # Default to 3m
 
         self.btn_process.setEnabled(True)
         self.reset_processed_view()
@@ -406,7 +445,6 @@ class ROVConsole(QMainWindow):
             creationflags = 0
 
         try:
-            # Added stdin=subprocess.PIPE for communication
             p = subprocess.Popen(
                 [exe] + args,
                 stdout=subprocess.PIPE,
@@ -457,7 +495,7 @@ class ROVConsole(QMainWindow):
         self.btn_stop_session.setEnabled(False)
         self.btn_finish_mission.setVisible(True)
 
-        self.sonar_control_widget.setVisible(False)  # Hide Slider
+        self.sonar_control_widget.setVisible(False)
 
         self.btn_process.setEnabled(False)
         QTimer.singleShot(500, self.clear_driver_feeds)
