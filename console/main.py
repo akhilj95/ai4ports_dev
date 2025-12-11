@@ -1,16 +1,16 @@
 import sys
 import os
 import signal
-import glob
 import subprocess
 import threading
 from datetime import datetime
+import math
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton, QFrame, QStatusBar,
                              QTextEdit, QLineEdit, QMessageBox, QGroupBox, QSizePolicy, QSlider)
-from PyQt6.QtCore import Qt, QProcess, QTimer, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt, QProcess, QTimer, pyqtSignal, QPoint, QPointF, QRect
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPen, QPolygonF, QBrush
 
 # --- LOCAL IMPORTS ---
 from src.video_thread_udp import VideoThreadUDP
@@ -37,6 +37,10 @@ class ROVConsole(QMainWindow):
         self.thread_pana = None
         self.thread_sonar = None
         self.processing_worker = None
+
+        # Telemetry State
+        self.current_heading = 0.0
+        self.current_depth = 0.0
         self.mavlink_worker = None
 
         # Mission State
@@ -47,14 +51,13 @@ class ROVConsole(QMainWindow):
 
         # --- SONAR CONFIG ---
         self.sonar_range_values = [3, 6, 9, 12, 15, 20, 25, 30]
-        # Debounce timer to prevent spamming the driver while sliding
         self.sonar_debounce_timer = QTimer()
         self.sonar_debounce_timer.setSingleShot(True)
-        self.sonar_debounce_timer.setInterval(800)  # Wait 800ms after last movement
+        self.sonar_debounce_timer.setInterval(800)
         self.sonar_debounce_timer.timeout.connect(self.send_sonar_command_delayed)
 
         self.init_ui()
-        self.start_preview_listeners()
+        self.start_background_threads()
 
     def init_ui(self):
         central_widget = QWidget()
@@ -118,46 +121,46 @@ class ROVConsole(QMainWindow):
         layout_session = QVBoxLayout(self.widget_session_ui)
         layout_session.setContentsMargins(0, 5, 0, 0)
 
-        # --- VIDEO AREA (3 COLUMNS) ---
+        # --- VIDEO AREA (2-COLUMN LAYOUT) ---
         video_area = QWidget()
         video_layout = QHBoxLayout(video_area)
         video_layout.setContentsMargins(0, 0, 0, 0)
         video_layout.setSpacing(5)
 
-        # COL 1: Main Camera
+        # Labels
         self.lbl_main = self.create_video_label("Main Camera (Pilot)\n[Connecting...]")
-        video_layout.addWidget(self.lbl_main, stretch=4)
-
-        # COL 2: Middle Sidebar (Panasonic + Processed)
-        middle_sidebar = QWidget()
-        middle_layout = QVBoxLayout(middle_sidebar)
-        middle_layout.setContentsMargins(0, 0, 0, 0)
-        middle_layout.setSpacing(5)
-
         self.lbl_pana = self.create_video_label("Panasonic Recorder [UDP 5001]")
+        self.lbl_sonar = self.create_video_label("Sonar View [UDP 5002]")
         self.lbl_proc = self.create_video_label("Processed Contour")
         self.lbl_proc.setVisible(False)
 
-        middle_layout.addWidget(self.lbl_pana, 1)
-        middle_layout.addWidget(self.lbl_proc, 1)
+        # Left Column: Main Camera (60%)
+        video_layout.addWidget(self.lbl_main, stretch=3)
 
-        # COL 3: Right Sidebar (Sonar Only)
-        right_sidebar = QWidget()
-        right_layout = QVBoxLayout(right_sidebar)
+        # Right Column: Vertical Layout
+        right_column_widget = QWidget()
+        right_layout = QVBoxLayout(right_column_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(5)
 
-        self.lbl_sonar = self.create_video_label("Sonar View [UDP 5002]")
-        right_layout.addWidget(self.lbl_sonar, 1)
+        # Right Top: Panasonic (Takes 2/3 vertical)
+        right_layout.addWidget(self.lbl_pana, stretch=2)
 
-        # Add Columns to Layout (Col 2 and Col 3 have equal stretch of 1)
-        video_layout.addWidget(middle_sidebar, stretch=1)
-        video_layout.addWidget(right_sidebar, stretch=1)
+        # Right Bottom: Container
+        bottom_right_widget = QWidget()
+        bottom_right_layout = QHBoxLayout(bottom_right_widget)
+        bottom_right_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_right_layout.setSpacing(5)
+
+        bottom_right_layout.addWidget(self.lbl_sonar)
+        bottom_right_layout.addWidget(self.lbl_proc)
+
+        right_layout.addWidget(bottom_right_widget, stretch=1)
+        video_layout.addWidget(right_column_widget, stretch=2)
 
         layout_session.addWidget(video_area, 1)
-        # ---------------------------------------
 
-        # Controls Area
+        # --- CONTROLS AREA ---
         controls_frame = QFrame()
         controls_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         controls_frame.setStyleSheet("background-color: #2d2d2d; border-radius: 8px; margin-top: 5px;")
@@ -180,7 +183,7 @@ class ROVConsole(QMainWindow):
         self.btn_process.setStyleSheet(styles.BTN_PROCESS)
         self.btn_process.clicked.connect(self.run_processing)
 
-        # --- UPDATED SLIDER WITH SPECIFIC VALUES ---
+        # --- SONAR SLIDER ---
         self.sonar_control_widget = QWidget()
         sonar_layout = QVBoxLayout(self.sonar_control_widget)
         sonar_layout.setContentsMargins(0, 0, 0, 0)
@@ -190,24 +193,18 @@ class ROVConsole(QMainWindow):
         self.lbl_sonar_range.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.slider_sonar_range = QSlider(Qt.Orientation.Horizontal)
-        # Set range to match index of array [0 .. len-1]
         self.slider_sonar_range.setRange(0, len(self.sonar_range_values) - 1)
-        self.slider_sonar_range.setValue(0)  # Default to first index (3m)
+        self.slider_sonar_range.setValue(0)
         self.slider_sonar_range.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.slider_sonar_range.setTickInterval(1)
-
-        # Connect to visual update immediately
         self.slider_sonar_range.valueChanged.connect(self.on_sonar_slider_change)
-
         self.slider_sonar_range.setStyleSheet(styles.SLIDER_STYLE)
 
         sonar_layout.addWidget(self.lbl_sonar_range)
         sonar_layout.addWidget(self.slider_sonar_range)
 
         self.sonar_control_widget.setVisible(False)
-        # ------------------------
 
-        # Added stretch=1 to all control widgets to make them equal width
         controls_layout.addWidget(self.btn_start_session, 1)
         controls_layout.addWidget(self.btn_stop_session, 1)
         controls_layout.addWidget(self.sonar_control_widget, 1)
@@ -217,18 +214,15 @@ class ROVConsole(QMainWindow):
         self.widget_session_ui.setVisible(False)
         main_layout.addWidget(self.widget_session_ui, 1)
 
-        # --- C. LOG ---
+        # --- LOG ---
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
-        self.log_output.setPlaceholderText("System Logs...")
-        self.log_output.setMaximumHeight(80)
         self.log_output.setStyleSheet(styles.LOG_OUTPUT)
         self.log_output.setVisible(False)
         main_layout.addWidget(self.log_output, 0)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-
         msg = "SYSTEM READY - DEBUG MODE ENABLED" if self.debug_mode else "SYSTEM READY"
         self.status_bar.showMessage(msg)
 
@@ -240,16 +234,14 @@ class ROVConsole(QMainWindow):
         lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         return lbl
 
-    def set_pixmap_scaled(self, label, image):
-        if not image.isNull():
-            if label.width() < 1 or label.height() < 1:
-                return
-            pix = QPixmap.fromImage(image)
-            scaled = pix.scaled(label.size(), Qt.AspectRatioMode.KeepAspectRatio,
-                                Qt.TransformationMode.SmoothTransformation)
-            label.setPixmap(scaled)
+    def start_background_threads(self):
+        # 1. Start Mavlink Worker
+        self.mavlink_worker = MavlinkWorker(ip="0.0.0.0", port=14552, debug_mode=self.debug_mode)
+        self.mavlink_worker.connection_signal.connect(self.on_mavlink_connection)
+        self.mavlink_worker.telemetry_signal.connect(self.update_telemetry)
+        self.mavlink_worker.start()
 
-    def start_preview_listeners(self):
+        # 2. Start UDP Listeners
         self.thread_pana = VideoThreadUDP(5001, "Panasonic")
         self.thread_pana.change_pixmap_signal.connect(lambda x: self.set_pixmap_scaled(self.lbl_pana, x))
         self.thread_pana.start()
@@ -258,24 +250,124 @@ class ROVConsole(QMainWindow):
         self.thread_sonar.change_pixmap_signal.connect(lambda x: self.set_pixmap_scaled(self.lbl_sonar, x))
         self.thread_sonar.start()
 
-    # --- NEW: SLIDER LOGIC ---
+    def update_telemetry(self, heading, depth):
+        self.current_heading = heading
+        self.current_depth = depth
+
+    def on_mavlink_connection(self, connected, msg, boot_time):
+        status_color = "#4CAF50" if connected else "#F44336"
+        self.log_output.append(f"<span style='color:{status_color}'>[MAV] {msg}</span>")
+        if connected and self.current_mission_folder:
+            info_file = os.path.join(self.current_mission_folder, "mission_info.txt")
+            try:
+                with open(info_file, "a") as f:
+                    f.write(f"MAV_CONNECTED: {datetime.now()}\n")
+            except:
+                pass
+
+    # --- VIDEO & OVERLAY ---
+    def set_pixmap_scaled(self, label, image):
+        if image.isNull() or label.width() < 1 or label.height() < 1:
+            return
+
+        pix = QPixmap.fromImage(image)
+        scaled = pix.scaled(label.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation)
+
+        if label == self.lbl_main:
+            painter = QPainter(scaled)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+            w = scaled.width()
+            h = scaled.height()
+
+            # --- 1. DEPTH (Bottom Left) ---
+            depth_str = f"DEPTH: {self.current_depth:.1f} m"
+            font_std = QFont("Consolas", 12, QFont.Weight.Bold)
+            painter.setFont(font_std)
+            metrics = painter.fontMetrics()
+
+            box_h = metrics.height() + 10
+            box_w = metrics.horizontalAdvance(depth_str) + 20
+            margin = 15
+
+            painter.setBrush(QColor(0, 0, 0, 150))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(margin, h - margin - box_h, box_w, box_h, 6, 6)
+
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(margin + 10, h - margin - 8, depth_str)
+
+            # --- 2. GRAPHICAL COMPASS (Bottom Right - RESIZED) ---
+            comp_radius = 60  # Increased from 45
+            comp_margin_x = 30
+            comp_margin_y = 30
+            center_x = w - comp_margin_x - comp_radius
+            center_y = h - comp_margin_y - comp_radius
+
+            # 2a. Background
+            painter.setBrush(QColor(0, 0, 0, 120))
+            painter.setPen(QPen(QColor(200, 200, 200, 100), 2))
+            painter.drawEllipse(QPoint(center_x, center_y), comp_radius, comp_radius)
+
+            # 2b. Fixed Letters (N/E/S/W)
+            font_card = QFont("Arial", 12, QFont.Weight.Bold)  # Increased font from 10 to 12
+            painter.setFont(font_card)
+
+            # N (Red)
+            painter.setPen(QColor(255, 60, 60))
+            painter.drawText(QRect(center_x - 15, center_y - comp_radius - 10, 30, 20), Qt.AlignmentFlag.AlignCenter,
+                             "N")
+
+            # E, S, W (White)
+            painter.setPen(QColor(220, 220, 220))
+            painter.drawText(QRect(center_x + comp_radius - 5, center_y - 10, 30, 20), Qt.AlignmentFlag.AlignCenter,
+                             "E")
+            painter.drawText(QRect(center_x - 15, center_y + comp_radius - 5, 30, 20), Qt.AlignmentFlag.AlignCenter,
+                             "S")
+            painter.drawText(QRect(center_x - comp_radius - 25, center_y - 10, 30, 20), Qt.AlignmentFlag.AlignCenter,
+                             "W")
+
+            # 2c. Rotating Triangle
+            painter.save()
+            painter.translate(center_x, center_y)
+            painter.rotate(self.current_heading)
+
+            painter.setBrush(QColor(255, 215, 0))  # Gold
+            painter.setPen(Qt.PenStyle.NoPen)
+            # Scaled up triangle slightly to match new radius
+            triangle = QPolygonF([
+                QPointF(0, -comp_radius + 5),
+                QPointF(-8, -comp_radius + 25),
+                QPointF(8, -comp_radius + 25)
+            ])
+            painter.drawPolygon(triangle)
+
+            painter.restore()
+
+            # 2d. Readout
+            font_val = QFont("Consolas", 11, QFont.Weight.Bold)  # Increased from 10
+            painter.setFont(font_val)
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(QRect(center_x - 30, center_y - 12, 60, 24),
+                             Qt.AlignmentFlag.AlignCenter, f"{int(self.current_heading)}°")
+
+            painter.end()
+
+        label.setPixmap(scaled)
+
+    # --- SLIDER LOGIC ---
     def on_sonar_slider_change(self):
-        """Updates UI immediately, starts debounce timer for API call."""
         idx = self.slider_sonar_range.value()
         val = self.sonar_range_values[idx]
         self.lbl_sonar_range.setText(f"Sonar Range: {val}m")
-
-        # Reset timer (debounce)
         self.sonar_debounce_timer.start()
 
     def send_sonar_command_delayed(self):
-        """Actually sends the command after debounce timeout."""
         idx = self.slider_sonar_range.value()
         val = float(self.sonar_range_values[idx])
-
         if self.proc_sonar and self.proc_sonar.poll() is None:
             try:
-                # Format to float "3.0"
                 cmd = f"RANGE {val:.1f}\n"
                 self.proc_sonar.stdin.write(cmd.encode('utf-8'))
                 self.proc_sonar.stdin.flush()
@@ -283,37 +375,7 @@ class ROVConsole(QMainWindow):
             except Exception as e:
                 self.log_output.append(f"[ERR] Failed to send range: {e}")
 
-    # -------------------------
-
-    def save_mavlink_data(self, success, msg, boot_time_ms):
-        if not self.current_mission_folder:
-            return
-
-        info_file = os.path.join(self.current_mission_folder, "mission_info.txt")
-        if success:
-            millis = boot_time_ms % 1000
-            total_seconds = boot_time_ms // 1000
-            seconds = total_seconds % 60
-            minutes = (total_seconds // 60) % 60
-            hours = total_seconds // 3600
-            uptime_str = "{:d}:{:02d}:{:02d}.{:03d}".format(hours, minutes, seconds, millis)
-
-            self.log_output.append(f">>> ROV ONLINE. Uptime: {uptime_str}")
-            try:
-                with open(info_file, "a") as f:
-                    f.write(f"ROV_BOOT_TIME_MS: {boot_time_ms}\n")
-                    f.write(f"ROV_UPTIME: {uptime_str}\n")
-                    f.write(f"DATA_ACQUIRED: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}\n")
-            except Exception as e:
-                self.log_output.append(f"[ERR] File write failed: {e}")
-        else:
-            self.log_output.append(f"[MAV ERR] Connection Failed: {msg}")
-            try:
-                with open(info_file, "a") as f:
-                    f.write(f"ROV_CONNECTION_FAILED: {msg}\n")
-            except Exception:
-                pass
-
+    # --- MISSION & SESSION LOGIC ---
     def create_mission(self):
         name = self.input_mission_name.text().strip()
         if not name:
@@ -333,14 +395,6 @@ class ROVConsole(QMainWindow):
             f.write(f"Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write("-" * 20 + "\n")
 
-        if hasattr(self, 'mavlink_worker') and self.mavlink_worker and self.mavlink_worker.isRunning():
-            self.mavlink_worker.terminate()
-            self.mavlink_worker.wait()
-
-        self.mavlink_worker = MavlinkWorker(ip="0.0.0.0", port=14552)
-        self.mavlink_worker.finished_signal.connect(self.save_mavlink_data)
-        self.mavlink_worker.start()
-
         self.current_mission_name = name
         self.is_mission_active = True
         self.log_output.append(f">>> MISSION CREATED: {name}")
@@ -351,7 +405,8 @@ class ROVConsole(QMainWindow):
         self.widget_active_mission.setVisible(True)
 
         self.widget_session_ui.setVisible(True)
-        self.log_output.setVisible(True)
+        self.sonar_control_widget.setVisible(True)
+        self.slider_sonar_range.setValue(0)
 
         if not self.thread_main:
             self.thread_main = SmartVideoThread(debug_mode=self.debug_mode)
@@ -365,11 +420,8 @@ class ROVConsole(QMainWindow):
     def finish_mission(self):
         self.is_mission_active = False
         self.log_output.append(f">>> MISSION FINISHED: {self.current_mission_name}")
-
         self.widget_active_mission.setVisible(False)
         self.widget_session_ui.setVisible(False)
-        self.log_output.setVisible(False)
-
         self.sonar_control_widget.setVisible(False)
 
         if self.thread_main:
@@ -379,7 +431,6 @@ class ROVConsole(QMainWindow):
 
         self.input_mission_name.clear()
         self.widget_create_mission.setVisible(True)
-
         self.btn_start_session.setEnabled(False)
         self.btn_process.setEnabled(False)
         self.current_session_path = None
@@ -391,7 +442,6 @@ class ROVConsole(QMainWindow):
             return
 
         self.log_output.append(">>> SESSION STARTING...")
-
         session_id = f"session_{datetime.now().strftime('%H_%M_%S')}"
         session_full_path = os.path.join(self.current_mission_folder, session_id)
         self.current_session_path = os.path.abspath(session_full_path)
@@ -404,7 +454,6 @@ class ROVConsole(QMainWindow):
             os.makedirs(camera0_path)
 
         self.log_output.append(f"[INFO] Saving session to: {self.current_session_path}")
-
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         main_cam_file = os.path.join(camera0_path, f"main_rec_{timestamp_str}.mkv")
 
@@ -427,10 +476,6 @@ class ROVConsole(QMainWindow):
         self.btn_start_session.setEnabled(False)
         self.btn_stop_session.setEnabled(True)
         self.btn_finish_mission.setVisible(False)
-
-        self.sonar_control_widget.setVisible(True)
-        self.slider_sonar_range.setValue(0)  # Default to 3m
-
         self.btn_process.setEnabled(True)
         self.reset_processed_view()
 
@@ -438,29 +483,17 @@ class ROVConsole(QMainWindow):
         proc = QProcess()
         proc.readyReadStandardOutput.connect(lambda: self.handle_log(proc))
         proc.readyReadStandardError.connect(lambda: self.handle_log(proc, is_err=True))
-
-        if os.name == 'nt':
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            creationflags = 0
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
 
         try:
-            p = subprocess.Popen(
-                [exe] + args,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-                creationflags=creationflags,
-                text=False
-            )
-
+            p = subprocess.Popen([exe] + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE,
+                                 creationflags=creationflags, text=False)
             t_out = threading.Thread(target=self.read_popen_output, args=(p, False))
             t_err = threading.Thread(target=self.read_popen_output, args=(p, True))
             t_out.daemon = True
             t_err.daemon = True
             t_out.start()
             t_err.start()
-
             return p
         except Exception as e:
             self.log_output.append(f"[ERR] Failed to start {exe}: {e}")
@@ -474,29 +507,20 @@ class ROVConsole(QMainWindow):
             if not line: break
             try:
                 decoded = line.decode('utf-8', errors='ignore').strip()
-                if decoded:
-                    print(f"{prefix} {decoded}")
+                if decoded: print(f"{prefix} {decoded}")
             except:
                 pass
 
     def stop_session(self):
         self.log_output.append(">>> SESSION STOPPING...")
-
-        if self.thread_main:
-            self.thread_main.stop_recording()
-
+        if self.thread_main: self.thread_main.stop_recording()
         self.kill_process(self.proc_panasonic)
         self.kill_process(self.proc_sonar)
-
         self.proc_panasonic = None
         self.proc_sonar = None
-
         self.btn_start_session.setEnabled(True)
         self.btn_stop_session.setEnabled(False)
         self.btn_finish_mission.setVisible(True)
-
-        self.sonar_control_widget.setVisible(False)
-
         self.btn_process.setEnabled(False)
         QTimer.singleShot(500, self.clear_driver_feeds)
 
@@ -518,25 +542,15 @@ class ROVConsole(QMainWindow):
     def kill_process(self, proc):
         if not proc: return
         if proc.poll() is None:
-            self.log_output.append(f"Stopping process {proc.pid}...")
             try:
                 if proc.stdin: proc.stdin.close()
                 if os.name == 'nt':
                     proc.send_signal(signal.CTRL_BREAK_EVENT)
                 else:
                     proc.send_signal(signal.SIGINT)
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self.log_output.append("[WARN] Cleanup timed out. Force killing...")
-                    proc.kill()
-                    proc.wait()
-            except Exception as e:
-                self.log_output.append(f"[ERR] Stop failed: {e}")
-                try:
-                    proc.kill()
-                except:
-                    pass
+                proc.wait(timeout=5)
+            except:
+                proc.kill()
 
     def run_processing(self):
         if not self.current_session_path or not os.path.exists(self.current_session_path):
@@ -544,20 +558,9 @@ class ROVConsole(QMainWindow):
             return
 
         img_folder = os.path.join(self.current_session_path, "camera_1", "images")
-        if not os.path.exists(img_folder):
-            self.log_output.append(f"[ERR] No images folder found: {img_folder}")
-            return
 
-        list_of_files = glob.glob(os.path.join(img_folder, "*.jpg"))
-        if not list_of_files:
-            self.log_output.append("[ERR] No images found to process.")
-            return
-
-        latest_file = max(list_of_files, key=os.path.getctime)
-        self.log_output.append(f"[INFO] Processing latest image: {os.path.basename(latest_file)}")
-
-        output_filename = f"processed_{os.path.basename(latest_file)}"
-        output_path = os.path.join(self.current_session_path, "camera_1", "images", output_filename)
+        # NOTE: WE DO NOT SEARCH FILES HERE ANYMORE to prevent freezing.
+        # We just pass the folder to the thread.
 
         ext = ".exe" if os.name == 'nt' else ""
         contour_bin = f"./bin/contour{ext}"
@@ -566,7 +569,8 @@ class ROVConsole(QMainWindow):
         self.lbl_proc.setText("Processing...\n(Please Wait)")
         self.btn_process.setEnabled(False)
 
-        self.processing_worker = ProcessingWorker(contour_bin, latest_file, output_path)
+        # Pass folder, not file
+        self.processing_worker = ProcessingWorker(contour_bin, img_folder)
         self.processing_worker.finished_signal.connect(self.on_processing_finished)
         self.processing_worker.start()
 
@@ -592,15 +596,13 @@ class ROVConsole(QMainWindow):
             data = proc.readAllStandardError() if is_err else proc.readAllStandardOutput()
             prefix = "[ERR]" if is_err else "[DRV]"
             text = bytes(data).decode("utf8", errors="ignore").strip()
-            if text:
-                self.log_output.append(f"{prefix} {text}")
-                self.log_output.verticalScrollBar().setValue(self.log_output.verticalScrollBar().maximum())
-        except RuntimeError:
+            if text: self.log_output.append(f"{prefix} {text}")
+        except:
             pass
 
     def closeEvent(self, event):
-        if self.thread_main:
-            self.thread_main.stop()
+        if self.thread_main: self.thread_main.stop()
+        if self.mavlink_worker: self.mavlink_worker.stop()
         self.kill_process(self.proc_panasonic)
         self.kill_process(self.proc_sonar)
         event.accept()
@@ -614,9 +616,7 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
     app.setStyleSheet("QMainWindow { background-color: #1e1e1e; } QLabel { color: #ccc; }")
-
     debug = "--debug" in sys.argv
-
     window = ROVConsole(debug_mode=debug)
     window.show()
     sys.exit(app.exec())
