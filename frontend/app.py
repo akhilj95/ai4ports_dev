@@ -42,15 +42,15 @@ def main_app():
 
     - 🚀 **Missions**: View and manage rover missions
     - 🔧 **Sensors**: Configure sensors and add new ones
-    - 📊 **Calibrations**: Manage sensor calibrations
     - 🎥 **Media Explorer**: Browse and filter media assets by location
     """)
 
     # Quick stats
     try:
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3, col4 = st.columns(4)
 
         with col1:
+            # Optimization: Missions are small enough to fetch, but ideally use an endpoint that returns count
             missions = st.session_state.api_client.get_missions()
             st.metric("📋 Total Missions", len(missions) if missions else 0)
 
@@ -59,19 +59,19 @@ def main_app():
             st.metric("🔧 Total Sensors", len(sensors) if sensors else 0)
 
         with col3:
-            calibrations = st.session_state.api_client.get_calibrations()
-            st.metric("📊 Calibrations", len(calibrations) if calibrations else 0)
-
-        with col4:
-            media_response = st.session_state.api_client.get_media_assets(filters=None)
+            # OPTIMIZED: Fetch only 1 item just to get the 'count' metadata
+            media_response = st.session_state.api_client.get_media_assets(page_size=1)
+            
             media_count = 0
             if isinstance(media_response, dict):
+                # API returns { "count": 1500, "results": [...] }
                 media_count = media_response.get('count', 0)
             elif isinstance(media_response, list):
                 media_count = len(media_response)
+                
             st.metric("🎥 Media Assets", media_count)
 
-        with col5:
+        with col4:
             rovers = st.session_state.api_client.get_rovers()
             st.metric("🚖 Rovers", len(rovers) if rovers else 0)
 

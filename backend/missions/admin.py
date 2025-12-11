@@ -4,6 +4,7 @@ from . import models
 admin.site.register(models.RoverHardware)
 admin.site.register(models.Sensor)
 admin.site.register(models.Calibration)
+admin.site.register(models.Location)
 admin.site.register(models.Mission)
 admin.site.register(models.SensorDeployment)
 admin.site.register(models.NavSample)

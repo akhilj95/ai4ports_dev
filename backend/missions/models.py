@@ -116,10 +116,23 @@ class Calibration(models.Model):
     def __str__(self):
         status = "Active" if self.active else "Inactive"
         return f"{self.sensor} since {self.effective_from:%Y-%m-%d} - {status}"
-
+    
 
 #  ------------------------------------------------------------------
-#  3. Mission and mission specific deployments
+#  3. Locations
+#  ------------------------------------------------------------------
+class Location(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+
+    latitude = models.FloatField(null=True, blank=True, help_text="Approximate latitude of the site")
+    longitude = models.FloatField(null=True, blank=True, help_text="Approximate longitude of the site")
+
+    def __str__(self):
+        return self.name
+
+#  ------------------------------------------------------------------
+#  4. Mission and mission specific deployments
 #  ------------------------------------------------------------------
 
 class Mission(models.Model):
@@ -144,11 +157,12 @@ class Mission(models.Model):
     )
     start_time   = models.DateTimeField(default=timezone.now)
     end_time     = models.DateTimeField(null=True, blank=True)
-    location     = models.CharField(max_length=50, blank=True)
 
-    # Approx gps
-    latitude = models.FloatField(null=True, blank=True)
-    longitude = models.FloatField(null=True, blank=True)
+    location = models.ForeignKey(
+        Location, 
+        on_delete=models.PROTECT, 
+        related_name="missions"
+    )
 
     target_type  = models.CharField(
         max_length=12,                     # safety margin of 6
@@ -177,13 +191,17 @@ class Mission(models.Model):
     def clean(self):
         if self.end_time and self.start_time and self.end_time <= self.start_time:
             raise ValidationError("End time must be after start time")
+        
+        if self.max_depth is not None and self.max_depth < 0:
+            raise ValidationError({"max_depth": "Depth must be positive in metres."})
     
     class Meta:
         indexes = [models.Index(fields=["start_time"])]
         ordering = ["-start_time"]
 
     def __str__(self):
-        return f"{self.rover.name} - {self.location} @ {self.start_time:%Y-%m-%d %H:%M}"
+        loc_name = self.location.name if self.location else "No Location"
+        return f"{self.rover.name} - {loc_name} @ {self.start_time:%Y-%m-%d %H:%M}"
 
 class SensorDeployment(models.Model):
     """
@@ -238,7 +256,7 @@ class SensorDeployment(models.Model):
         return f"{self.sensor} on {self.mission} ({self.position})"
 
 #  ------------------------------------------------------------------
-#  4. Log files
+#  5. Log files
 #  ------------------------------------------------------------------
 class LogFile(models.Model):
     """
@@ -297,7 +315,7 @@ class LogFile(models.Model):
     
 
 #  ------------------------------------------------------------------
-#  5. Navigation readings
+#  6. Navigation readings
 #  ------------------------------------------------------------------
 class NavSample(models.Model):
     """Subset of EKF state needed for media filtering."""
@@ -325,7 +343,7 @@ class NavSample(models.Model):
         ordering = ["mission", "timestamp"]
 
 #  ------------------------------------------------------------------
-#  6. Video and image data
+#  7. Video and image data
 #  ------------------------------------------------------------------
 class MediaAsset(models.Model):
     """
@@ -347,6 +365,30 @@ class MediaAsset(models.Model):
     fps          = models.DecimalField(max_digits=6, decimal_places=3, null=True, blank=True)      # video only
     file_metadata = models.JSONField(default=dict, blank=True)
     notes        = models.TextField(blank=True)
+    thumbnail_path = models.CharField(max_length=500, blank=True, null=True)
+
+    # New Denormalized Fields for fast filtering
+    min_depth_m = models.FloatField(null=True, blank=True, db_index=True)
+    max_depth_m = models.FloatField(null=True, blank=True, db_index=True)
+
+    # Only for image sets
+    generated_video_path = models.CharField(
+        max_length=500, 
+        null=True, 
+        blank=True,
+        help_text="Path to a video file generated from an image set"
+    )
+
+    def calculate_stats(self):
+        """Helper to populate stats from linked frames"""
+        # Find all nav samples linked to this asset's frames
+        stats = self.frames.aggregate(
+            min_d=models.Min('closest_nav_sample__depth_m'),
+            max_d=models.Max('closest_nav_sample__depth_m')
+        )
+        self.min_depth_m = stats['min_d']
+        self.max_depth_m = stats['max_d']
+        self.save(update_fields=['min_depth_m', 'max_depth_m'])
 
     def clean(self):
         # Ensure file_path is not empty
@@ -416,7 +458,7 @@ class FrameIndex(models.Model):
 
 
 #  ------------------------------------------------------------------
-#  7. Other sensor readings
+#  8. Other sensor readings
 #  ------------------------------------------------------------------
 
 # common base (abstract; no DB table)
@@ -490,7 +532,7 @@ class PressureSample(SensorSampleBase):
     EXPECTED_SENSOR_TYPE = Sensor.SensorType.PRESSURE
 
 #  ------------------------------------------------------------------
-#  7. Hydrographic sea level data
+#  9. Hydrographic sea level data
 #  ------------------------------------------------------------------
 class TideLevel(models.Model):
     """

@@ -59,9 +59,27 @@ class SensorSerializer(serializers.ModelSerializer):
         calib = active.first()
         return CalibrationSerializer(calib).data if calib else None
 
+# Serializer for Location model
+class LocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Location
+        fields = '__all__'
+
+# Simple list serailizer for missions
+class MissionListSerializer(serializers.ModelSerializer):
+    # Minimal data for dropdowns/tables
+    location = serializers.CharField(source='location.name', read_only=True)
+    
+    class Meta:
+        model = models.Mission
+        # Exclude 'notes' and other heavy fields
+        fields = ("id", "start_time", "end_time", "location", "target_type")
 
 # Serializer for Mission model with validation for time and depth fields
 class MissionSerializer(serializers.ModelSerializer):
+    # Display the location name string (e.g., "NM-A1")
+    location = serializers.CharField(source='location.name', read_only=True)
+
     class Meta:
         model = models.Mission
         fields = (
@@ -77,25 +95,13 @@ class MissionSerializer(serializers.ModelSerializer):
             "notes",
         )
 
-    # Validate object-level constraints: end_time must be after start_time
     def validate(self, attrs):
-        # Use current instance values if not provided in new data, mainly for updates
-        start = attrs.get("start_time", getattr(self.instance, "start_time", None))
-        end = attrs.get("end_time", getattr(self.instance, "end_time", None))
-        if start and end and end <= start:
-            raise serializers.ValidationError(
-                {"end_time": "End time must be after start time."}
-            )
+        # Create a temporary instance to test model validation
+        instance = models.Mission(**attrs)
+        instance.clean()  # This runs the logic defined in models.py
         return attrs
 
-    # Validate 'max_depth' field to ensure it is positive if provided
-    def validate_max_depth(self, value):
-        if value is not None and value < 0:
-            raise serializers.ValidationError("Depth must be positive in metres.")
-        return value
-
 # Serializer for SensorDeployment model
-# adding custom fields for latest calibration coefficients and sensor name
 class SensorDeploymentSerializer(serializers.ModelSerializer):
     # Custom field to retrieve latest calibration coefficients (active or specified
     latest_coefficients = serializers.SerializerMethodField(read_only=True)
@@ -204,18 +210,23 @@ class MediaAssetSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.MediaAsset
         fields = (
-            'id', 'deployment', 'media_type', 'file_path', 'start_time', 
-            'end_time', 'fps', 'file_metadata', 'notes', 'deployment_details',
+            'id', 'deployment', 'media_type', 'file_path', 
+            'thumbnail_path',
+            'generated_video_path',
+            'start_time', 'end_time', 'fps', 'file_metadata', 
+            'notes', 'deployment_details',
         )
         read_only_fields = ('id',)
     
     # Provide dictionary with deployment and mission info for the media asset
     def get_deployment_details(self, obj):
+        location_obj = obj.deployment.mission.location
+        loc_name = location_obj.name if location_obj else "Unknown"
         return {
             'sensor_name': obj.deployment.sensor.name,
             'sensor_type': obj.deployment.sensor.sensor_type,
             'mission_id': obj.deployment.mission.id,
-            'mission_location': obj.deployment.mission.location
+            'mission_location': loc_name,
         }
     
     # Call validation from the parent class

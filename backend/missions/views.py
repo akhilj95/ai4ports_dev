@@ -24,9 +24,9 @@ class MyTokenObtainPairView(TokenObtainPairView):
 # Rover Hardware
 # ------------------------------------------------------------------
 class RoverHardwareViewSet(viewsets.ModelViewSet):
-    queryset = models.RoverHardware.objects.prefetch_related("missions").all()
+    queryset = models.RoverHardware.objects.all()
     serializer_class = serializers.RoverHardwareSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     search_fields = ["name"]
     ordering_fields = ["effective_from", "name"]
 
@@ -36,7 +36,7 @@ class RoverHardwareViewSet(viewsets.ModelViewSet):
 class SensorViewSet(viewsets.ModelViewSet):
     queryset = models.Sensor.objects.prefetch_related("calibrations").all()
     serializer_class = serializers.SensorSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     search_fields = ["name", "sensor_type"]
     ordering_fields = ["name", "sensor_type"]
 
@@ -46,28 +46,47 @@ class SensorViewSet(viewsets.ModelViewSet):
 class CalibrationViewSet(viewsets.ModelViewSet):
     queryset = models.Calibration.objects.select_related("sensor").all()
     serializer_class = serializers.CalibrationSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     filterset_fields = ["sensor", "active"]
     ordering_fields = ["effective_from"]
+
+# ------------------------------------------------------------------
+# Location (MISSING IN YOUR ORIGINAL FILE)
+# ------------------------------------------------------------------
+class LocationViewSet(viewsets.ModelViewSet):
+    queryset = models.Location.objects.all()
+    serializer_class = serializers.LocationSerializer
+    permission_classes = [IsAuthenticated]
+    search_fields = ["name"]
+
 
 # ------------------------------------------------------------------
 # Mission
 # ------------------------------------------------------------------
 class MissionViewSet(viewsets.ModelViewSet):
-    queryset = models.Mission.objects.select_related("rover").all()
+    queryset = models.Mission.objects.select_related("rover", "location").all()
     serializer_class = serializers.MissionSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     filterset_class = filters.MissionFilter
-    search_fields = ["notes", "location"]
+    search_fields = ["notes", "location__name"]
     ordering_fields = ["start_time", "max_depth"]
+
+    def get_serializer_class(self):
+        # For 'list' action (GET /missions/)
+        if self.action == 'list':
+            return serializers.MissionListSerializer
+        # OTHERWISE (e.g., 'retrieve', 'create', 'update')
+        return serializers.MissionSerializer
 
 # ------------------------------------------------------------------
 # Sensor Deployment
 # ------------------------------------------------------------------
 class SensorDeploymentViewSet(viewsets.ModelViewSet):
-    queryset = models.SensorDeployment.objects.select_related("sensor", "mission").all()
+    queryset = models.SensorDeployment.objects.select_related(
+        "sensor", "mission", "calibration"
+    ).prefetch_related("sensor__calibrations").all()
     serializer_class = serializers.SensorDeploymentSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     filterset_fields = ["sensor", "mission"]
     ordering_fields = ["mission", "sensor"]
 
@@ -77,7 +96,7 @@ class SensorDeploymentViewSet(viewsets.ModelViewSet):
 class LogFileViewSet(viewsets.ModelViewSet):
     queryset = models.LogFile.objects.select_related("mission").all()
     serializer_class = serializers.LogFileSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     filterset_fields = ["mission"]
     ordering_fields = ["created_at"]
 
@@ -87,7 +106,7 @@ class LogFileViewSet(viewsets.ModelViewSet):
 class NavSampleViewSet(viewsets.ModelViewSet):
     queryset = models.NavSample.objects.select_related("mission").all()
     serializer_class = serializers.NavSampleSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     filterset_fields = ["mission", "depth_m", "timestamp"]
     ordering_fields = ["timestamp", "depth_m"]
 
@@ -97,7 +116,7 @@ class NavSampleViewSet(viewsets.ModelViewSet):
 class ImuSampleViewSet(viewsets.ModelViewSet):
     queryset = models.ImuSample.objects.select_related("deployment").all()
     serializer_class = serializers.ImuSampleSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     filterset_fields = ["deployment"]
     ordering_fields = ["timestamp"]
 
@@ -107,7 +126,7 @@ class ImuSampleViewSet(viewsets.ModelViewSet):
 class CompassSampleViewSet(viewsets.ModelViewSet):
     queryset = models.CompassSample.objects.select_related("deployment").all()
     serializer_class = serializers.CompassSampleSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     filterset_fields = ["deployment"]
     ordering_fields = ["timestamp"]
 
@@ -117,7 +136,7 @@ class CompassSampleViewSet(viewsets.ModelViewSet):
 class PressureSampleViewSet(viewsets.ModelViewSet):
     queryset = models.PressureSample.objects.select_related("deployment").all()
     serializer_class = serializers.PressureSampleSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     filterset_fields = ["deployment"]
     ordering_fields = ["timestamp"]
 
@@ -126,12 +145,12 @@ class PressureSampleViewSet(viewsets.ModelViewSet):
 # ------------------------------------------------------------------
 class MediaAssetViewSet(viewsets.ModelViewSet):
     queryset = models.MediaAsset.objects.select_related(
-        'deployment__mission', 'deployment__sensor'
-    ).prefetch_related('frames').all()
+        'deployment__mission__location', 'deployment__sensor'
+    ).order_by('start_time').distinct()
     serializer_class = serializers.MediaAssetSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     filterset_class = filters.MediaAssetFilter
-    search_fields = ['deployment__mission__location',]
+    search_fields = ['deployment__mission__location__name',]
     ordering_fields = ['start_time']
 
 # ------------------------------------------------------------------
@@ -142,7 +161,7 @@ class FrameIndexViewSet(viewsets.ModelViewSet):
         'media_asset', 'closest_nav_sample'
     ).all()
     serializer_class = serializers.FrameIndexSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     filterset_fields = [
         'media_asset',
         'frame_number',
@@ -157,7 +176,7 @@ class FrameIndexViewSet(viewsets.ModelViewSet):
 class TideLevelViewSet(viewsets.ModelViewSet):
     queryset = models.TideLevel.objects.all()
     serializer_class = serializers.TideLevelSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     search_fields = ["port_name"]
     ordering_fields = ["port_name", "time"]
 
