@@ -5,6 +5,9 @@
 # Ignore all __pycache__
 __pycache__/
 /data/
+backend/logs/
+backend/staticfiles/
+frontend/.streamlit/
 
 # Ignore all venv and env
 venv/
