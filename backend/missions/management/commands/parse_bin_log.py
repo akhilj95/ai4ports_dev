@@ -16,15 +16,22 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Parse a log file by LogFile ID, unless already parsed (simplified version)."
+    help = "Parse log files. Use --all to parse all unprocessed .bin files, or --logfile-id for a specific one."
 
     def add_arguments(self, parser):
-        parser.add_argument(
+        # Create a mutually exclusive group so user must pick one method
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument(
             "--logfile-id", 
             type=int, 
-            required=True, 
-            help="ID of the LogFile to parse."
+            help="ID of the specific LogFile to parse."
         )
+        group.add_argument(
+            "--all", 
+            action="store_true", 
+            help="Automatically find and parse ALL unparsed .bin LogFiles."
+        )
+
         parser.add_argument(
             "--batch-size", 
             type=int, 
@@ -56,7 +63,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        logfile_id = options["logfile_id"]
         batch_size = options["batch_size"]
         force = options["force"]
         
@@ -64,31 +70,65 @@ class Command(BaseCommand):
         imu_instances = [int(x.strip()) for x in options["imu_instances"].split(",")]
         mag_instances = [int(x.strip()) for x in options["mag_instances"].split(",")]
         baro_instances = [int(x.strip()) for x in options["baro_instances"].split(",")]
-        
-        try:
-            logfile = LogFile.objects.get(pk=logfile_id)
-        except LogFile.DoesNotExist:
-            raise CommandError(f"LogFile with id={logfile_id} does not exist.")
 
-        if logfile.already_parsed and not force:
-            raise CommandError(f"LogFile {logfile_id} has already been parsed. Use --force to re-parse.")
-        
-        # Get mission
+        # 1. Determine which files to process
+        logfiles_to_process = []
+
+        if options['all']:
+            # Find all LogFiles that contain a BIN path and are NOT yet parsed
+            qs = LogFile.objects.exclude(bin_path__isnull=True).exclude(bin_path__exact='')
+            
+            if not force:
+                qs = qs.filter(already_parsed=False)
+            
+            logfiles_to_process = list(qs)
+            
+            if not logfiles_to_process:
+                self.stdout.write(self.style.WARNING("No unparsed .bin files found."))
+                return
+                
+            self.stdout.write(self.style.SUCCESS(f"Found {len(logfiles_to_process)} unparsed binary logs."))
+        else:
+            # Single ID mode
+            try:
+                lf = LogFile.objects.get(pk=options["logfile_id"])
+                if lf.already_parsed and not force:
+                    raise CommandError(f"LogFile {lf.id} already parsed. Use --force to re-parse.")
+                logfiles_to_process = [lf]
+            except LogFile.DoesNotExist:
+                raise CommandError(f"LogFile with id={options['logfile_id']} does not exist.")
+
+        # 2. Iterate and Process
+        total = len(logfiles_to_process)
+        for index, logfile in enumerate(logfiles_to_process, start=1):
+            self.stdout.write(self.style.SUCCESS(f"--- Processing {index}/{total}: {logfile} ---"))
+            
+            try:
+                self.process_single_file(
+                    logfile, batch_size, imu_instances, mag_instances, baro_instances
+                )
+                self.stdout.write(self.style.SUCCESS(f"Successfully parsed LogFile {logfile.id}"))
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f"Failed to process LogFile {logfile.id}: {e}"))
+                logger.exception(f"Error processing LogFile {logfile.id}")
+                # We continue to the next file instead of crashing the whole command
+
+    def process_single_file(self, logfile, batch_size, imu_instances, mag_instances, baro_instances):
+        """Helper to run the loader for a single log file."""
         mission = logfile.mission
+        
+        # Basic Validation
         if not mission.end_time:
-            raise CommandError("Mission must have an end_time before import.")
-        
-        self.stdout.write(f"Mission found: {mission}")
-        self.stdout.write(f"IMU instances: {imu_instances}")
-        self.stdout.write(f"MAG instances: {mag_instances}")
-        self.stdout.write(f"BARO instances: {baro_instances}")
-        
+             # If mission has no end_time, we cannot safely filter samples. 
+             # You might optionally skip this instead of raising error.
+             raise CommandError(f"Mission {mission.id} has no end_time set.")
+
         # Get deployments for linking samples
         deployments = SensorDeployment.objects.filter(mission=mission)
         deployments_by_sensor_type = {}
         for deployment in deployments:
             sensor_type = deployment.sensor.sensor_type
-            instance = getattr(deployment, "instance", None)  # assumes deployment.instance exists
+            instance = getattr(deployment, "instance", None)
             if instance is not None:
                 deployments_by_sensor_type.setdefault(sensor_type, {})[instance] = deployment
         
@@ -104,24 +144,17 @@ class Command(BaseCommand):
             stdout=self.stdout
         )
         
-        # Run the parsing
-        try:
-            loader.run()
-            # Mark as parsed
-            logfile.already_parsed = True
-            logfile.save()
-            self.stdout.write(self.style.SUCCESS("Parsing completed successfully."))
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f"Parsing failed: {str(e)}"))
-            raise
+        # Run parsing
+        loader.run()
+        
+        # Mark as parsed
+        logfile.already_parsed = True
+        logfile.save()
 
 
 class SimplifiedBinLoader:
     """
     Simplified loader class for parsing ArduPilot .bin log files.
-    
-    This version directly maps message types to sample models without the complex
-    deployment-based lookup system.
     """
     
     def __init__(self, logfile, mission, deployments_by_sensor_type, 
@@ -167,7 +200,7 @@ class SimplifiedBinLoader:
     
     def run(self):
         """Main parsing loop with simplified logic."""
-        self.log_message("Starting simplified log file parsing...")
+        self.log_message(f"Starting parsing for {self.logfile.bin_path}...")
         
         # Initialize batch containers
         batches = {
@@ -193,9 +226,8 @@ class SimplifiedBinLoader:
                 
                 # Check if timestamp is within mission bounds
                 if not (self.mission.start_time <= timestamp <= self.mission.end_time):
+                    self.stats["filtered_messages"] += 1
                     continue
-                
-                self.stats["filtered_messages"] += 1
                 
                 # Process message based on type
                 msg_type = msg.get_type()
@@ -217,7 +249,7 @@ class SimplifiedBinLoader:
                             
             except Exception as e:
                 self.stats["errors"] += 1
-                logger.error(f"Error processing message {msg.get_type()}: {str(e)}")
+                # logger.error(f"Error processing message {msg.get_type()}: {str(e)}")
                 continue
         
         # Flush any remaining batches
@@ -339,7 +371,7 @@ class SimplifiedBinLoader:
         deployment = instances.get(instance)
         if deployment:
             return deployment
-        logger.warning(f"No deployment found for sensor type '{sensor_type}' instance {instance}")
+        # Only log warning once per missing deployment to reduce noise
         return None
     
     def _resolve_timestamp(self, msg, log_file_created):
@@ -360,14 +392,13 @@ class SimplifiedBinLoader:
         try:
             with transaction.atomic():
                 model_class.objects.bulk_create(batch, ignore_conflicts=True)
-            self.log_message(f"Saved {len(batch)} {model_class.__name__} samples")
         except Exception as e:
             logger.error(f"Error saving batch of {model_class.__name__}: {str(e)}")
             self.stats["errors"] += len(batch)
     
     def _print_statistics(self):
         """Print parsing statistics."""
-        self.log_message(f"Parsing complete! Statistics:")
+        self.log_message(f"Statistics for current file:")
         self.log_message(f"  Total messages: {self.stats['total_messages']}")
         self.log_message(f"  Filtered messages: {self.stats['filtered_messages']}")
         self.log_message(f"  Saved samples: {self.stats['saved_samples']}")

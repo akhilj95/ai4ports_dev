@@ -75,7 +75,26 @@ a=fmtp:96 packetization-mode=1;sprop-parameter-sets=Z01AKZZUA8ARPyo=,aO44gA==;pr
                 self.video_writer = None
         else:
             self.restart_requested = True
-            if self.process:
+            # --- USE GRACEFUL STOP TO SAVE METADATA ---
+            self.graceful_ffmpeg_stop()
+
+    def graceful_ffmpeg_stop(self):
+        """
+        Sends 'q' to FFmpeg's stdin to allow it to write the file trailer/metadata
+        before exiting. Falls back to terminate() if it hangs.
+        """
+        if self.process and self.process.poll() is None:
+            try:
+                # Send 'q' to quit cleanly
+                if self.process.stdin:
+                    self.process.stdin.write(b'q')
+                    self.process.stdin.flush()
+                
+                # Wait up to 2 seconds for FFmpeg to write the trailer
+                self.process.wait(timeout=2.0)
+                self.log_signal.emit("[FFMPEG] Closed cleanly (Metadata saved).")
+            except Exception as e:
+                self.log_signal.emit(f"[FFMPEG] Graceful stop failed ({e}), forcing kill.")
                 self.process.terminate()
 
     def run(self):
@@ -175,9 +194,14 @@ a=fmtp:96 packetization-mode=1;sprop-parameter-sets=Z01AKZZUA8ARPyo=,aO44gA==;pr
         self.log_signal.emit(f"[FFMPEG] Starting Stream ({mode_str})...")
 
         try:
+            # --- FIX: ADD stdin=subprocess.PIPE ---
             self.process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                bufsize=10 ** 8, startupinfo=startupinfo
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
+                stdin=subprocess.PIPE,  # <--- Essential for sending 'q'
+                bufsize=10 ** 8, 
+                startupinfo=startupinfo
             )
         except FileNotFoundError:
             self.log_signal.emit(f"[ERR] FFmpeg not found at {ffmpeg_bin}")
@@ -242,6 +266,5 @@ a=fmtp:96 packetization-mode=1;sprop-parameter-sets=Z01AKZZUA8ARPyo=,aO44gA==;pr
     def stop(self):
         self.run_flag = False
         self.restart_requested = False
-        if self.process:
-            self.process.terminate()
+        self.graceful_ffmpeg_stop()
         self.wait()

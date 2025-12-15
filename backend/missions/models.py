@@ -2,6 +2,7 @@ from django.db import models
 from django.utils import timezone
 from django.db import transaction
 from django.core.exceptions import ValidationError
+from django.db.models.functions import Coalesce
 import logging
 
 # Get a logger instance
@@ -381,10 +382,14 @@ class MediaAsset(models.Model):
 
     def calculate_stats(self):
         """Helper to populate stats from linked frames"""
-        # Find all nav samples linked to this asset's frames
+        # Prefer corrected_depth_m, fallback to depth_m if null
         stats = self.frames.aggregate(
-            min_d=models.Min('closest_nav_sample__depth_m'),
-            max_d=models.Max('closest_nav_sample__depth_m')
+            min_d=models.Min(
+                Coalesce('closest_nav_sample__corrected_depth_m', 'closest_nav_sample__depth_m')
+            ),
+            max_d=models.Max(
+                Coalesce('closest_nav_sample__corrected_depth_m', 'closest_nav_sample__depth_m')
+            )
         )
         self.min_depth_m = stats['min_d']
         self.max_depth_m = stats['max_d']

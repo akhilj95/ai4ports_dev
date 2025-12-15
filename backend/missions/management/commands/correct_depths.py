@@ -2,7 +2,7 @@ import math
 from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.db.models import F
-from missions.models import Mission, NavSample, TideLevel
+from missions.models import Mission, NavSample, TideLevel, MediaAsset
 
 class Command(BaseCommand):
     help = "Calculates hydrographic depth correction using Harmonic Analysis formulas."
@@ -81,6 +81,17 @@ class Command(BaseCommand):
                 NavSample.objects.bulk_update(samples_to_update, ['corrected_depth_m'], batch_size=1000)
                 total_updated += len(samples_to_update)
                 self.stdout.write(f"   Updated {len(samples_to_update)} samples.")
+
+                self.stdout.write("   Recalculating statistics for affected MediaAssets...")
+                # Find all assets linked to this mission via their deployment
+                assets = MediaAsset.objects.filter(deployment__mission=mission)
+                
+                count = 0
+                for asset in assets:
+                    asset.calculate_stats() # Recalculates using the new corrected depths
+                    count += 1
+                
+                self.stdout.write(f"   Updated stats for {count} assets.")
         
         self.stdout.write(self.style.SUCCESS(f"Finished. Successfully corrected {total_updated} NavSamples."))
 

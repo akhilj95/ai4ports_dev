@@ -21,6 +21,10 @@ class MavlinkWorker(QThread):
         self.debug_mode = debug_mode
         self.running = True
 
+        # NEW: Store the latest sync data thread-safely
+        self.latest_boot_time_ms = 0
+        self.latest_unix_time = 0
+
     def run(self):
         # --- DEBUG MODE SIMULATION ---
         if self.debug_mode:
@@ -73,16 +77,20 @@ class MavlinkWorker(QThread):
         while self.running:
             try:
                 # Filter for VFR_HUD messages which contain Heading and Alt (Depth)
-                msg = master.recv_match(type='VFR_HUD', blocking=True, timeout=1.0)
+                msg = master.recv_match(type=['VFR_HUD', 'SYSTEM_TIME'], blocking=True, timeout=1.0)
 
                 if msg:
-                    # msg.heading is in degrees (0..360)
-                    # msg.alt is altitude in meters (positive). ROV depth is often negative alt or handled differently.
-                    # We will assume 'alt' is what we want, or -alt if needed.
-                    # Usually VFR_HUD.alt on ArduSub is Depth.
-                    heading = float(msg.heading)
-                    depth = float(msg.alt)
-                    self.telemetry_signal.emit(heading, depth)
+                    msg_type = msg.get_type()
+
+                    if msg_type == 'VFR_HUD':
+                        heading = float(msg.heading)
+                        depth = float(msg.alt) # or -msg.alt depending on setup
+                        self.telemetry_signal.emit(heading, depth)
+
+                    elif msg_type == 'SYSTEM_TIME':
+                        # Capture the pair: (PC Time, ROV Boot Time)
+                        self.latest_unix_time = time.time() # PC Time
+                        self.latest_boot_time_ms = msg.time_boot_ms # ROV Time
 
             except Exception:
                 # Allow timeout to check self.running flag

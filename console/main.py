@@ -382,17 +382,45 @@ class ROVConsole(QMainWindow):
             QMessageBox.warning(self, "Input Error", "Please enter a mission name.")
             return
 
-        date_str = datetime.now().strftime("%Y_%m_%d")
+        now = datetime.now()
+        unix_ts = int(now.timestamp())
+        date_str = now.strftime("%Y_%m_%d")
+
         safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
 
         self.current_mission_folder = os.path.join("data", date_str, safe_name)
         if not os.path.exists(self.current_mission_folder):
             os.makedirs(self.current_mission_folder)
 
+        # data from mavlink for sync
+        boot_ms = 0
+        unix_ts_sync = 0
+        
+        if self.mavlink_worker:
+            boot_ms = self.mavlink_worker.latest_boot_time_ms
+            unix_ts_sync = self.mavlink_worker.latest_unix_time
+
+        # 2. Write Info File with Timestamp
         info_file = os.path.join(self.current_mission_folder, "mission_info.txt")
         with open(info_file, "a") as f:
             f.write(f"Mission: {name}\n")
-            f.write(f"Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Created: {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Timestamp: {unix_ts}\n")
+            f.write("-" * 20 + "\n")
+
+            # Write the Sync Data
+            if boot_ms > 0:
+                f.write("SYNC_DATA_VALID: TRUE\n")
+                f.write(f"Sync_PC_Unix_Time: {unix_ts_sync}\n")
+                f.write(f"Sync_ROV_Boot_Time_MS: {boot_ms}\n")
+                
+                # Calculate simple Offset
+                # (Unix Time when ROV was at 0ms)
+                offset = unix_ts_sync - (boot_ms / 1000.0)
+                f.write(f"Calculated_Offset: {offset:.4f}\n")
+            else:
+                f.write("SYNC_DATA_VALID: FALSE (ROV Not Connected or No Time Data)\n")
+                
             f.write("-" * 20 + "\n")
 
         self.current_mission_name = name
@@ -442,7 +470,7 @@ class ROVConsole(QMainWindow):
             return
 
         self.log_output.append(">>> SESSION STARTING...")
-        session_id = f"session_{datetime.now().strftime('%H_%M_%S')}"
+        session_id = f"session_{int(datetime.now().timestamp())}"
         session_full_path = os.path.join(self.current_mission_folder, session_id)
         self.current_session_path = os.path.abspath(session_full_path)
 
@@ -454,8 +482,8 @@ class ROVConsole(QMainWindow):
             os.makedirs(camera0_path)
 
         self.log_output.append(f"[INFO] Saving session to: {self.current_session_path}")
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        main_cam_file = os.path.join(camera0_path, f"main_rec_{timestamp_str}.mkv")
+        unix_ts_video = int(datetime.now().timestamp())
+        main_cam_file = os.path.join(camera0_path, f"main_rec_{unix_ts_video}.mkv")
 
         if self.thread_main:
             self.thread_main.start_recording(main_cam_file)
